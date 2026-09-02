@@ -1,0 +1,45 @@
+{
+  "schema_version": "0.1-local-demo",
+  "note": "Local demo database. Replace with PostgreSQL/API later.",
+  "bottles": [
+    {
+      "bottle_id": "HTV-7KX92P4",
+      "token": "A7KX92P4",
+      "lid_code": "X7K9-P4M2",
+      "product": "Assam Wildflower Honey",
+      "origin": "Assam, India",
+      "batch_id": "HT-BATCH-001",
+      "harvest_date": "2026-08-15",
+      "status": "active"
+    },
+    {
+      "bottle_id": "HTV-3M8Q1Z7",
+      "token": "F3M8Q1Z7",
+      "lid_code": "R4T2-N8K6",
+      "product": "Forest Honey",
+      "origin": "Assam, India",
+      "batch_id": "HT-BATCH-002",
+      "harvest_date": "2026-08-22",
+      "status": "active"
+    }
+  ],
+  "gateways": [
+    {
+      "gateway_id": "GW-ASSAM-01",
+      "name": "Assam Apiary Gateway",
+      "backhaul": "4G/LTE",
+      "status": "online",
+      "battery_percent": 86
+    }
+  ],
+  "sensor_nodes": [
+    {
+      "device_id": "NODE-HIVE-01",
+      "hive_id": "HIVE-001",
+      "gateway_id": "GW-ASSAM-01",
+      "reading_interval_minutes": 15,
+      "battery_percent": 92,
+      "last_seen": "2026-09-02T20:45:00"
+    }
+  ]
+}
