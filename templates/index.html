@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HiveTrust AI — Smart Beekeeping</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="app">
+<aside>
+<div class="brand"><span>🐝</span><div><b>HiveTrust</b><small>AI + Provenance</small></div></div>
+<div class="roleBox"><b>View as</b><br>
+<select id="roleSel" class="input" style="width:100%;margin-top:6px" onchange="setRole(this.value)">
+<option value="owner">🐝 Hive Owner</option>
+<option value="auditor">🛡️ Auditor</option>
+<option value="consumer">🛒 Consumer</option>
+</select></div>
+<nav>
+<button class="nav active" data-page="dashboard">⌂ Dashboard</button>
+<button class="nav" data-page="hives">🐝 Smart Hives</button>
+<button class="nav" data-page="batches">🍯 Honey Batches</button>
+<button class="nav" data-page="harvest">⚖️ Harvest Integrity</button>
+<button class="nav" data-page="alerts">🚨 Alerts</button>
+<button class="nav" data-page="ledger">🔗 Blockchain & Security</button>
+<button class="nav" data-page="verify">📱 Consumer Verify</button>
+<button class="nav" data-page="about">ℹ️ Research Concept</button>
+</nav>
+<div class="side"><b>Netlify Demo</b><br>100% browser-based prototype<br>No server required.</div>
+</aside>
+<main>
+<header><div><div class="eyebrow">SMART BEEKEEPING PLATFORM</div><h1 id="title">Dashboard</h1></div><div class="pill">● Live Demo</div></header>
+<section id="content"></section>
+</main></div>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body></html>
