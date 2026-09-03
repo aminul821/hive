@@ -1,0 +1,118 @@
+{
+  "schema_version": "0.7-demo",
+  "note": "Mock local database. Replace with PostgreSQL/managed DB + API in production. Keep lid secrets server-side in production.",
+  "bottles": [
+    {
+      "token": "HTV-7KX92P4",
+      "code": "X7K9-P4M2",
+      "batch": "HC-DEMO-001",
+      "harvest": "HI-DEMO-001",
+      "hive": "H001",
+      "product": "Assam Forest Honey",
+      "origin": "Assam",
+      "harvestDate": "02 Sep 2026",
+      "moisture": 17.2,
+      "status": "ACTIVE",
+      "scans": 1,
+      "lastScan": "02 Sep 2026, 20:10",
+      "verificationEvents": [
+        {
+          "time": "02 Sep 2026, 20:10",
+          "result": "AUTHENTIC_FIRST_SCAN",
+          "session": "S-DEMO-001",
+          "note": "First detailed verification recorded"
+        }
+      ]
+    },
+    {
+      "token": "HTV-3M8Q1Z7",
+      "code": "R4T2-N8K6",
+      "batch": "HC-DEMO-002",
+      "harvest": "HI-DEMO-002",
+      "hive": "H003",
+      "product": "North Bengal Wildflower Honey",
+      "origin": "North Bengal",
+      "harvestDate": "28 Aug 2026",
+      "moisture": 18.1,
+      "status": "ACTIVE",
+      "scans": 4,
+      "lastScan": "02 Sep 2026, 20:18",
+      "verificationEvents": [
+        {
+          "time": "01 Sep 2026, 10:02",
+          "result": "AUTHENTIC",
+          "session": "S-DEMO-014",
+          "note": "Normal verification"
+        },
+        {
+          "time": "01 Sep 2026, 12:21",
+          "result": "AUTHENTIC",
+          "session": "S-DEMO-019",
+          "note": "Normal verification"
+        },
+        {
+          "time": "02 Sep 2026, 20:17",
+          "result": "SUSPICIOUS_REUSE",
+          "session": "S-DEMO-041",
+          "note": "Code reused unusually quickly"
+        },
+        {
+          "time": "02 Sep 2026, 20:18",
+          "result": "POSSIBLE_CLONE",
+          "session": "S-DEMO-042",
+          "note": "Repeated credential reuse flagged"
+        }
+      ]
+    }
+  ],
+  "gateways": [
+    {
+      "id": "HT-GW-001",
+      "apiary": "Assam North Apiary",
+      "backhaul": "4G/LTE",
+      "network": "LoRaWAN",
+      "status": "ONLINE",
+      "battery": 78,
+      "signal": "Good",
+      "lastSeen": "02 Sep 2026, 20:20",
+      "hives": 4
+    },
+    {
+      "id": "HT-GW-002",
+      "apiary": "North Bengal Field",
+      "backhaul": "4G/LTE",
+      "network": "LoRaWAN",
+      "status": "ONLINE",
+      "battery": 64,
+      "signal": "Fair",
+      "lastSeen": "02 Sep 2026, 20:15",
+      "hives": 3
+    }
+  ],
+  "devices": [
+    {
+      "id": "HT-HIVE-001",
+      "hive": "H001",
+      "gateway": "HT-GW-001",
+      "status": "ONLINE",
+      "lastReading": "02 Sep 2026, 20:15",
+      "battery": 82
+    },
+    {
+      "id": "HT-HIVE-002",
+      "hive": "H002",
+      "gateway": "HT-GW-001",
+      "status": "ONLINE",
+      "lastReading": "02 Sep 2026, 20:15",
+      "battery": 74
+    },
+    {
+      "id": "HT-HIVE-003",
+      "hive": "H003",
+      "gateway": "HT-GW-002",
+      "status": "ONLINE",
+      "lastReading": "02 Sep 2026, 20:15",
+      "battery": 67
+    }
+  ]
+}
