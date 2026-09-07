@@ -2,6 +2,8 @@ from flask import Flask
 from config import Config
 from routes import register_blueprints
 import logging
+from dotenv import load_dotenv
+load_dotenv()
 
 
 def create_app():
