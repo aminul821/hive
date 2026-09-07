@@ -14,7 +14,7 @@
 | ⛓️ Blockchain record of bottle verification | ✅ Real | Written live to a `HoneyLedger` smart contract on Ethereum **Sepolia testnet** (see `blockchain.py`) |
 | 📱 QR code for bottle verification | ✅ Real | Generated server-side (`/api/qr/<token>`), scans open the live verification page |
 | 🤖 AI hive health / yield prediction | ✅ Real | Trained scikit-learn RandomForest model (`train_model.py`), not a hardcoded formula |
-| 📡 IoT sensor ingestion | ✅ Real pipeline / 🔶 Simulated hardware | `/api/sensor-data` is a real, working endpoint; `simulate_sensors.py` stands in for physical sensors we don't have yet |
+| 📡 IoT Sensor Ingestion | ✅ Real pipeline / 🔶 Simulated hardware | `/api/sensor-data` is a real, working endpoint; `simulate_sensors.py` stands in for physical sensors we don't have yet |
 | 🔐 Internal harvest/tamper-audit ledger | 🔶 Simulated | A demo tamper-evident hash-chain, separate from the real Ethereum ledger above |
 | 🔑 Authentication / role enforcement | 🔶 Demo-only | Role switching (Owner/Auditor/Consumer) is UI-level for demo purposes |
 | 💾 Database | 🔶 JSON file | Sufficient for demo scale; future: PostgreSQL/SQLite |
