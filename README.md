@@ -123,11 +123,16 @@ This sends realistic sensor readings for every provisioned device every 15 secon
 
 ---
 
-## Team & Collaboration
+## 👥 Team
 
-**Project Lead:** [@aminul821](https://github.com/aminul821)  
-**GitHub Repository:** [aminul821/hive](https://github.com/aminul821/hive)  
-**SIH Problem Statement:** Smart India Hackathon 2026
+| Member | Role | GitHub |
+|--------|------|--------|
+| **Aminul Haque** | Project Lead & Full Stack Developer | [@aminul821](https://github.com/aminul821) |
+| **Veeru Shukla** | Backend Developer | [@veerushukla](https://github.com/veerushukla) |
+| **Aditya Anand** | Vibe Coder & Frontend Developer | [@adiianand](https://github.com/adiianand) |
+| **Anas Khan** | Analyst & Data Scientist | [@1anas1](https://github.com/1anas1) |
+| **Muskan** | Research & Documentation | - |
+| **Siddharth** | Research & Development (R&D) | - |
 
 **Contributing:** We welcome contributions! Please fork this repository and submit pull requests with improvements.
 
