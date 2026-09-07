@@ -20,7 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DB_FILE = BASE_DIR / "data" / "database.json"
 
 # Safe defaults for an empty database
-DEFAULT_DB = {"schema_version": "0.7-demo", "bottles": [], "gateways": [], "devices": []}
+DEFAULT_DB = {"schema_version": "0.7-demo", "bottles": [], "batches": [], "gateways": [], "devices": []}
 
 
 def load_database():
@@ -70,6 +70,12 @@ def find_bottle(db: dict, token: str):
     return next((b for b in db.get("bottles", []) if b.get("token") == token), None)
 
 
+def find_batch(db: dict, batch_id: str):
+    if not batch_id:
+        return None
+    return next((b for b in db.get("batches", []) if b.get("id") == batch_id), None)
+
+
 @main_bp.get("/")
 def index():
     return render_template("index.html")
@@ -99,6 +105,100 @@ def api_bottle(token):
     pub = deepcopy(b)
     pub.pop("code", None)
     return jsonify(pub)
+
+
+@main_bp.post("/api/batches")
+def api_create_batch():
+    """Registers a honey batch server-side (data/database.json) instead of
+    the browser's localStorage, so it survives refreshes and is visible to
+    Consumer Verify from any device/session, not just the one that created it.
+
+    Expected JSON body: {"hive": "H001", "location": "...", "qty": 12.3,
+    "date": "...", "quality": "Verified Demo", "id": "HC-..." (optional)}
+    """
+    payload = request.get_json(silent=True) or {}
+    batch_id = payload.get("id") or ("HC-" + uuid4().hex[:8].upper())
+
+    db = load_database()
+    if find_batch(db, batch_id):
+        return jsonify({"error": "batch_id_exists"}), 409
+
+    batch = {
+        "id": batch_id,
+        "hive": payload.get("hive", ""),
+        "location": payload.get("location", ""),
+        "qty": payload.get("qty"),
+        "date": payload.get("date", datetime.now().strftime("%d %b %Y")),
+        "quality": payload.get("quality", "Verified Demo"),
+    }
+    db.setdefault("batches", []).append(batch)
+    try:
+        save_database(db)
+    except Exception:
+        logger.exception("Failed to persist batch %s", batch_id)
+        return jsonify({"error": "storage_failed"}), 500
+
+    return jsonify(batch), 201
+
+
+@main_bp.get("/api/batches/<batch_id>")
+def api_get_batch(batch_id):
+    """Looks up one batch by ID — used by Consumer Verify so a batch created
+    on one device/session can still be verified from another."""
+    db = load_database()
+    b = find_batch(db, batch_id)
+    if not b:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify(b)
+
+
+@main_bp.post("/api/bottles")
+def api_create_bottle():
+    """Registers a new bottle (QR-ready) for a honey batch.
+
+    This is what makes a freshly created batch immediately scannable: without
+    it, no bottle/token exists for the batch, so the consumer QR registry and
+    any scan of that batch never had a real bottle to show a batch ID for.
+
+    Expected JSON body (only "batch" is required):
+    {
+      "batch": "HC-...", "hive": "H001", "product": "...", "origin": "...",
+      "harvestDate": "02 Sep 2026", "moisture": 18
+    }
+    """
+    payload = request.get_json(silent=True) or {}
+    batch = payload.get("batch")
+    if not batch:
+        return jsonify({"error": "batch is required"}), 400
+
+    token = "HTV-" + uuid4().hex[:9].upper()
+    code = f"{uuid4().hex[:4].upper()}-{uuid4().hex[:4].upper()}"
+
+    bottle = {
+        "token": token,
+        "code": code,
+        "batch": batch,
+        "harvest": payload.get("harvest", batch),
+        "hive": payload.get("hive", ""),
+        "product": payload.get("product", "Honey"),
+        "origin": payload.get("origin", ""),
+        "harvestDate": payload.get("harvestDate", datetime.now().strftime("%d %b %Y")),
+        "moisture": payload.get("moisture"),
+        "status": payload.get("status", "ACTIVE"),
+        "scans": 0,
+        "lastScan": None,
+        "verificationEvents": [],
+    }
+
+    db = load_database()
+    db.setdefault("bottles", []).append(bottle)
+    try:
+        save_database(db)
+    except Exception:
+        logger.exception("Failed to persist new bottle for batch %s", batch)
+        return jsonify({"error": "storage_failed"}), 500
+
+    return jsonify(bottle), 201
 
 
 @main_bp.get("/api/qr/<token>")
