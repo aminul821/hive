@@ -131,7 +131,7 @@ This sends realistic sensor readings for every provisioned device every 15 secon
 | **Veeru Shukla** | Backend Developer | [@veerushukla](https://github.com/veerushukla) |
 | **Aditya Anand** | Vibe Coder & Frontend Developer | [@adiianand](https://github.com/adiianand) |
 | **Anas Khan** | Analyst & Data Scientist | [@1anas1](https://github.com/1anas1) |
-| **Muskan** | Research & Documentation | - |
+| **Muskan** | Research & Documentation | [@muskansahu479](https://github.com/muskansahu479) |
 | **Siddharth** | Research & Development (R&D) | - |
 
 **Contributing:** We welcome contributions! Please fork this repository and submit pull requests with improvements.
