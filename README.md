@@ -26,7 +26,7 @@
 ```
     🌐 Browser (role-based dashboard)
         │
-        ▼
+        ▼ ⬇️ ⬇️ ⬇️
     🔧 Flask Backend (app.py, routes/main.py)
         │
         ├── 📁 data/database.json  ── bottles, gateways, devices, sensor readings
@@ -37,14 +37,21 @@
 
 **📊 Data Flow (Bottle Verification):**
 ```
-🔍 Consumer scans QR → 🌐 opens /?v=<token> → 🔐 enters hidden lid code 
-→ 📤 POST /api/verify → 💾 result saved → ⛓️ HoneyLedger on Sepolia
+🔍 Consumer scans QR 
+    ➜ 🌐 opens /?v=<token> 
+    ➜ 🔐 enters hidden lid code 
+    ➜ 📤 POST /api/verify 
+    ➜ 💾 result saved 
+    ➜ ⛓️ HoneyLedger on Sepolia ✓
 ```
 
 **📈 Data Flow (Sensor → AI):**
 ```
-📡 Sensor → 📤 POST /api/sensor-data → 💾 reading stored 
-→ 🤖 RandomForest model → 📊 risk/yield returned
+📡 Sensor 
+    ➜ 📤 POST /api/sensor-data 
+    ➜ 💾 reading stored 
+    ➜ 🤖 RandomForest model 
+    ➜ 📊 risk/yield returned ✓
 ```
 
 ---
@@ -52,33 +59,33 @@
 ## 🛠️ Tech Stack
 
 ```
-┌─────────────────────────────────────────────────┐
-│  🎨 FRONTEND                                    │
-│  • JavaScript (62.7%)                           │
-│  • HTML (2.1%)                                  │
-│  • CSS - Role-based Dashboard UI                │
-└─────────────────────────────────────────────────┘
+╔═════════════════════════════════════════════════╗
+║  🎨 FRONTEND                                    ║
+║  • JavaScript (62.7%)                           ║
+║  • HTML (2.1%)                                  ║
+║  • CSS - Role-based Dashboard UI                ║
+╚═════════════════════════════════════════════════╝
            │
-           ▼
-┌─────────────────────────────────────────────────┐
-│  ⚙️ BACKEND                                     │
-│  • Python (34.6%)                               │
-│  • Flask REST API                               │
-└─────────────────────────────────────────────────┘
+           ▼ ⬇️ ⬇️
+╔═════════════════════════════════════════════════╗
+║  ⚙️ BACKEND                                     ║
+║  • Python (34.6%)                               ║
+║  • Flask REST API                               ║
+╚═════════════════════════════════════════════════╝
            │
-           ▼
-┌─────────────────────────────────────────────────┐
-│  🔬 ML/AI & BLOCKCHAIN                          │
-│  • scikit-learn (RandomForest models)           │
-│  • Solidity Smart Contracts                     │
-│  • Web3.py - Ethereum Sepolia testnet           │
-└─────────────────────────────────────────────────┘
+           ▼ ⬇️ ⬇️
+╔═════════════════════════════════════════════════╗
+║  🔬 ML/AI & BLOCKCHAIN                          ║
+║  • scikit-learn (RandomForest models)           ║
+║  • Solidity Smart Contracts                     ║
+║  • Web3.py - Ethereum Sepolia testnet           ║
+╚═════════════════════════════════════════════════╝
            │
-           ▼
-┌─────────────────────────────────────────────────┐
-│  💾 DATABASE                                    │
-│  • JSON (demo) → PostgreSQL/SQLite (production) │
-└─────────────────────────────────────────────────┘
+           ▼ ⬇️ ⬇️
+╔═════════════════════════════════════════════════╗
+║  💾 DATABASE                                    ║
+║  • JSON (demo) → PostgreSQL/SQLite (production) ║
+╚═════════════════════════════════════════════════╝
 ```
 
 ---
@@ -141,6 +148,16 @@ python simulate_sensors.py --loop
 
 📊 This sends realistic sensor readings every 15 seconds, so you can see the IoT → AI pipeline live! 
 
+**Live Demo Flow:**
+```
+🔄 Start Loop
+  ➜ 📡 Generate Sensor Data
+  ➜ 📤 Send to Backend
+  ➜ 🤖 AI Processing
+  ➜ 📊 Results Display
+  ➜ 🔄 Repeat (15s)
+```
+
 ---
 
 ## ⚠️ Known Limitations
@@ -155,6 +172,19 @@ python simulate_sensors.py --loop
 
 ## 👥 Team
 
+<div align="center">
+
+### 🔥 **HEXADEVELOPERS** 🔥
+#### *6 Coders, 1 Mission, Infinite Possibilities* ⚡
+
+```
+     💻💻💻
+   💻  🎯  💻    ← 1 Vision
+     💻💻💻
+```
+
+</div>
+
 <table>
   <tr>
     <th>👤 Member</th>
@@ -162,32 +192,32 @@ python simulate_sensors.py --loop
     <th>🔗 GitHub</th>
   </tr>
   <tr>
-    <td><b>Aminul Haque</b> ⭐</td>
+    <td><b>⭐ Aminul Haque</b></td>
     <td>Project Lead & Full Stack Developer</td>
     <td><a href="https://github.com/aminul821">@aminul821</a></td>
   </tr>
   <tr>
-    <td><b>Veeru Shukla</b> 🔧</td>
-    <td>Backend Developer</td>
+    <td><b>🎨 Veeru Shukla</b></td>
+    <td>Frontend Developer</td>
     <td><a href="https://github.com/veerushukla">@veerushukla</a></td>
   </tr>
   <tr>
-    <td><b>Aditya Anand</b> 🎨</td>
-    <td>Vibe Coder & Frontend Developer</td>
+    <td><b>🔧 Aditya Anand</b></td>
+    <td>Backend Developer & Vibe Coder</td>
     <td><a href="https://github.com/adiianand">@adiianand</a></td>
   </tr>
   <tr>
-    <td><b>Anas Khan</b> 📊</td>
+    <td><b>📊 Anas Khan</b></td>
     <td>Analyst & Data Scientist</td>
     <td><a href="https://github.com/1anas1">@1anas1</a></td>
   </tr>
   <tr>
-    <td><b>Muskan</b> 📚</td>
+    <td><b>📚 Muskan</b></td>
     <td>Research & Documentation</td>
     <td><a href="https://github.com/muskansahu479">@muskansahu479</a></td>
   </tr>
   <tr>
-    <td><b>Siddharth</b> 🔬</td>
+    <td><b>🔬 Siddharth</b></td>
     <td>Research & Development (R&D)</td>
     <td>📝 Coming Soon</td>
   </tr>
@@ -198,7 +228,7 @@ python simulate_sensors.py --loop
 ## 🤝 Contributing
 
 ```
-  Fork → Branch → Commit → Push → Pull Request ✨
+Fork ➜ Branch ➜ Commit ➜ Push ➜ Pull Request ✨
 ```
 
 We welcome contributions! Please fork this repository and submit pull requests with improvements.
@@ -215,10 +245,11 @@ MIT License — See [LICENSE](LICENSE) file for details.
 
 ### ⭐ If you find HoneyChain helpful, please consider giving us a star! ⭐
 
-**Made with ❤️ by Team HoneyChain**
+**Made with ❤️ by Team HexaDevelopers**
 
 ```
-🐝 Protecting authenticity, one bottle at a time 🍯
+   🐝 ➜ 🍯 ➜ ✓
+Protecting authenticity, one bottle at a time
 ```
 
 </div>
