@@ -15,7 +15,7 @@ HoneyChain combines IoT hive monitoring, a real trained AI model for hive health
 | QR code for bottle verification | ✅ Real | Generated server-side (`/api/qr/<token>`), scans open the live verification page |
 | AI hive health / yield prediction | ✅ Real | Trained scikit-learn RandomForest model (`train_model.py`), not a hardcoded formula |
 | IoT sensor ingestion | ✅ Real pipeline / 🔶 Simulated hardware | `/api/sensor-data` is a real, working endpoint; `simulate_sensors.py` stands in for physical sensors we don't have yet |
-| Internal harvest/tamper-audit ledger (Blockchain & Security page) | 🔶 Simulated | A demo tamper-evident hash-chain, separate from the real Ethereum ledger above — kept for demonstrating the tamper-detection *concept* without an on-chain write per internal event |
+| Internal harvest/tamper-audit ledger (Blockchain & Security page) | 🔶 Simulated | A demo tamper-evident hash-chain, separate from the real Ethereum ledger above — kept for demonstrating the[...] |
 | Authentication / role enforcement | 🔶 Demo-only | Role switching (Owner/Auditor/Consumer) is UI-level for demo purposes; not backend-enforced yet |
 | Database | 🔶 JSON file (`data/database.json`) | Sufficient for demo scale; a real deployment would move to Postgres/SQLite |
 
@@ -36,10 +36,26 @@ Flask backend (app.py, routes/main.py)
 ```
 
 **Data flow (bottle verification):**
-`Consumer scans QR → opens /?v=<token> → enters hidden lid code → POST /api/verify → result saved to database.json → event hashed and written to HoneyLedger on Sepolia → tx hash + Etherscan link returned`
+`Consumer scans QR → opens /?v=<token> → enters hidden lid code → POST /api/verify → result saved to database.json → event hashed and written to HoneyLedger on Sepolia → tx hash + Ethe[...]`
 
 **Data flow (sensor → AI):**
 `Sensor (real or simulate_sensors.py) → POST /api/sensor-data → reading stored → RandomForest model runs immediately → risk/yield returned and stored alongside the reading`
+
+---
+
+## Tech Stack
+
+- **Frontend:** JavaScript, HTML, CSS (role-based dashboard UI)
+- **Backend:** Python, Flask (REST API)
+- **ML/AI:** scikit-learn (RandomForest models)
+- **Blockchain:** Solidity, Web3.py, Ethereum Sepolia testnet
+- **Database:** JSON (demo), future: PostgreSQL/SQLite
+
+**Language Composition:**
+- JavaScript: 62.7%
+- Python: 34.6%
+- HTML: 2.1%
+- Other: 0.6%
 
 ---
 
@@ -105,6 +121,18 @@ This sends realistic sensor readings for every provisioned device every 15 secon
 - Internal harvest/tamper ledger is a simulated hash-chain, separate from the real Sepolia ledger used for bottle verification
 - AI model is trained on domain-informed synthetic data (no historical real-world hive dataset yet)
 
-## Team
+---
 
-_Add your team name, members, and SIH problem statement ID here._
+## Team & Collaboration
+
+**Project Lead:** [@aminul821](https://github.com/aminul821)  
+**GitHub Repository:** [aminul821/hive](https://github.com/aminul821/hive)  
+**SIH Problem Statement:** Smart India Hackathon 2026
+
+**Contributing:** We welcome contributions! Please fork this repository and submit pull requests with improvements.
+
+---
+
+## License
+
+MIT License — See LICENSE file for details.
