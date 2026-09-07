@@ -204,6 +204,9 @@ async function unlockBottle() {
 
 const state={hives:[
 {id:"H001",location:"Assam",t:33.2,h:61,w:48.2,a:86},{id:"H002",location:"Muzaffarpur",t:36.8,h:72,w:42.5,a:58},{id:"H003",location:"North Bengal",t:31.5,h:55,w:51,a:91},{id:"H004",location:"Bihar",t:34,h:65,w:45.8,a:76}],batches:[],blocks:[],audits:[]};
+// Batches now live server-side (data/database.json) — see init(), which
+// loads state.batches from /api/database — instead of localStorage, so
+// they survive refreshes and are visible from any device/session.
 function predictor(x){let s=100,r=[];if(x.t<30||x.t>36){s-=18;r.push("temperature outside preferred range")}if(x.h<45||x.h>75){s-=15;r.push("humidity unusual")}if(x.a<55){s-=22;r.push("bee activity low")}if(x.w<35){s-=15;r.push("hive weight low")}s=Math.max(0,Math.min(100,s));let risk=s>=80?"Low":s>=60?"Medium":"High";let base=Math.max(2,(x.w-30)*.65+x.a*.025);return{score:s,risk,ymin:(base*(.82+s/500)).toFixed(1),ymax:(base*(1.05+s/400)).toFixed(1),reason:r.join("; ")||"all monitored parameters are within demo baseline"}}
 function hash(str){let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return("00000000"+(h>>>0).toString(16)).slice(-8).repeat(8)}
 function addBlock(type,payload){let prev=state.blocks.length?state.blocks[state.blocks.length-1].hash:"0".repeat(64);let raw=type+JSON.stringify(payload)+prev;let h=hash(raw);state.blocks.push({idx:state.blocks.length+1,ts:new Date().toLocaleString(),type,payload,prev,hash:h});}
@@ -350,36 +353,76 @@ $("#content").innerHTML=`<div class="hero"><div><div class="eyebrow" style="colo
 function simulate(){state.hives.forEach(x=>{x.t=+(x.t+(Math.random()-.5)*2).toFixed(1);x.h=Math.max(30,Math.min(85,+(x.h+(Math.random()-.5)*8).toFixed(1)));x.w=+(x.w+(Math.random()-.1)*1).toFixed(1);x.a=Math.max(20,Math.min(100,+(x.a+(Math.random()-.5)*10).toFixed(1)))});render()}
 function hives(){
 let hs=state.hives.map(x=>({...x,...predictor(x)}));const mc=hiveMismatchCounts();
-$("#content").innerHTML=`<div class="card"><div class="section-head"><h2>Live hive monitoring</h2><button class="btn" onclick="simulate()">Simulate New Readings</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Hive</th><th>Temp</th><th>Humidity</th><th>Weight</th><th>Activity</th><th>Health</th><th>Prediction</th></tr></thead><tbody>${hs.map(x=>`<tr><td><b>${x.id}</b><br><span class="muted">${x.location}</span></td><td>${x.t}°C</td><td>${x.h}%</td><td>${x.w} kg</td><td>${x.a}%</td><td><b>${x.score}/100</b></td><td><span class="badge ${x.risk.toLowerCase()}">${x.risk} risk</span><br><span class="muted">${x.ymin}–${x.ymax} kg expected</span></td></tr>`).join("")}</tbody></table></div></div><div class="grid section">${hs.map(x=>`<div class="card"><b>${x.id}</b><div class="muted">${x.location}</div><div style="text-align:center;padding:18px"><div class="big">${x.score}</div><div class="muted">Hive Health (instant local preview)</div></div><div class="${x.risk==="High"?"dangerbox":x.risk==="Medium"?"notice":"success"}"><b>${x.risk} risk</b><br>${esc(x.reason)}</div>${mc[x.id]>=2?`<div class="dangerbox" style="margin-top:8px"><b>⚠ Repeated Mismatch</b><br>${mc[x.id]} flagged harvests recorded for this hive. Recommend a physical inspection.</div>`:""}<button class="btn secondary" style="margin-top:10px;width:100%" onclick="runRealAI('${x.id}',${x.t},${x.h},${x.w},${x.a})">🤖 Run Real AI Model (backend)</button><div id="ai-result-${x.id}" style="margin-top:8px"></div></div>`).join("")}</div>`}
+$("#content").innerHTML=`<div class="card"><div class="section-head"><h2>Live hive monitoring</h2><button class="btn" onclick="simulate()">Simulate New Readings</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Hive</th><th>Temp</th><th>Humidity</th><th>Weight</th><th>Activity</th><th>Health</th><th>Prediction</th></tr></thead><tbody>${hs.map(x=>`<tr><td><b>${x.id}</b><br><span class="muted">${x.location}</span></td><td>${x.t}°C</td><td>${x.h}%</td><td>${x.w} kg</td><td>${x.a}%</td><td><b>${x.score}/100</b></td><td><span class="badge ${x.risk.toLowerCase()}">${x.risk} risk</span><br><span class="muted">${x.ymin}–${x.ymax} kg expected</span></td></tr>`).join("")}</tbody></table></div></div><div class="grid section">${hs.map(x=>`<div class="card" id="hive-card-${x.id}"><b>${x.id}</b><div class="muted">${x.location}</div><div style="text-align:center;padding:18px"><div class="big" id="score-${x.id}">${x.score}</div><div class="muted" id="score-label-${x.id}">Hive Health · asking the AI model…</div></div><div class="${x.risk==="High"?"dangerbox":x.risk==="Medium"?"notice":"success"}" id="risk-box-${x.id}"><b>${x.risk} risk</b><br>${esc(x.reason)}</div>${mc[x.id]>=2?`<div class="dangerbox" style="margin-top:8px"><b>⚠ Repeated Mismatch</b><br>${mc[x.id]} flagged harvests recorded for this hive. Recommend a physical inspection.</div>`:""}</div>`).join("")}</div>`;
+autoRunAI(hs);
+}
 
-async function runRealAI(hiveId, t, h, w, a) {
-  const box = $(`#ai-result-${hiveId}`);
-  if (!box) return;
-  box.innerHTML = `<div class="muted">Running scikit-learn model on the backend…</div>`;
-  try {
-    const resp = await fetch('/api/predict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ temperature: t, humidity: h, weight: w, activity: a }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      box.innerHTML = `<div class="notice">Model not available yet: ${esc(data.detail || data.error || 'unknown error')}</div>`;
-      return;
+// The AI model now runs automatically for every hive as soon as this page
+// loads (and again after "Simulate New Readings") — there's no separate
+// "use AI" step for the owner to trigger. Each card upgrades in place from
+// the instant local heuristic to the real backend (scikit-learn) result,
+// and silently keeps the local heuristic if the backend is unavailable.
+async function autoRunAI(hs) {
+  await Promise.all(hs.map(async (x) => {
+    const label = $(`#score-label-${x.id}`);
+    const box = $(`#risk-box-${x.id}`);
+    try {
+      const resp = await fetch('/api/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ temperature: x.t, humidity: x.h, weight: x.w, activity: x.a }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || data.error || 'model unavailable');
+
+      if (label) label.innerHTML = `Hive Health <span class="badge low" style="margin-left:6px">🤖 AI-verified</span>`;
+      if (box) {
+        box.className = data.risk === 'High' ? 'dangerbox' : data.risk === 'Medium' ? 'notice' : 'success';
+        box.innerHTML = `<b>${esc(data.risk)} risk</b> <span class="mini">${data.confidence}% AI confidence</span><br>${esc(data.reason)}<br><span class="muted">Predicted yield: <b>${data.predicted_yield_kg} kg</b> · ${esc(data.model)}</span>`;
+      }
+    } catch (err) {
+      // Backend model not trained/reachable yet — keep the instant local
+      // preview so the page still works, just without the AI upgrade.
+      if (label) label.textContent = 'Hive Health (instant local preview)';
     }
-    box.innerHTML = `<div class="success"><b>🤖 Backend AI result</b><br>
-      Risk: <b>${esc(data.risk)}</b> (${data.confidence}% confidence)<br>
-      Predicted yield: <b>${data.predicted_yield_kg} kg</b><br>
-      <span class="muted">${esc(data.reason)}</span><br>
-      <span class="mini">${esc(data.model)}</span>
-    </div>`;
-  } catch (err) {
-    box.innerHTML = `<div class="notice">Could not reach the AI backend right now.</div>`;
-  }
+  }));
 }
 
 function batches(){let hs=state.hives;$("#content").innerHTML=`<div class="card"><div class="section-head"><h2>Create a harvest batch</h2></div><div class="actions"><select id="sel" class="input">${hs.map(x=>`<option value="${x.id}">${x.id} — ${x.location}</option>`).join("")}</select><button class="btn" onclick="createBatch()">Create Batch</button></div></div><div class="section card"><h2>Honey provenance</h2><div class="table-wrap"><table class="table"><thead><tr><th>Batch</th><th>Hive</th><th>Quantity</th><th>Quality</th><th>Action</th></tr></thead><tbody>${state.batches.length?state.batches.map(b=>`<tr><td><b>${b.id}</b></td><td>${b.hive}</td><td>${b.qty} kg</td><td><span class="badge low">Verified Demo</span></td><td><button class="btn secondary" onclick="showBatch('${b.id}')">Verify</button></td></tr>`).join(""):`<tr><td colspan="5" class="muted">No batches yet.</td></tr>`}</tbody></table></div></div><div id="detail"></div><div class="section"><h2>🔐 Bottle-level QR Registry</h2><p class="muted">Each bottle gets a unique public deep-link. Basic information is public; the detailed report requires the hidden lid code.</p>${localDB.bottles.map(consumerQRCard).join("")}</div>`}
-function createBatch(){let id="HC-"+Date.now().toString().slice(-8),h=state.hives.find(x=>x.id===$("#sel").value),p=predictor(h),qty=+(Math.max(1,(h.w-30)*.7)).toFixed(1);state.batches.push({id,hive:h.id,location:h.location,qty,date:new Date().toLocaleDateString(),quality:"Verified Demo"});addBlock("HARVEST",{batch_id:id,hive_id:h.id,quantity_kg:qty});addBlock("QUALITY_STATUS",{batch_id:id,status:"Verified Demo"});batches()}
+async function createBatch(){
+let id="HC-"+Date.now().toString().slice(-8),h=state.hives.find(x=>x.id===$("#sel").value),p=predictor(h),qty=+(Math.max(1,(h.w-30)*.7)).toFixed(1);
+const batchPayload={id,hive:h.id,location:h.location,qty,date:new Date().toLocaleDateString(),quality:"Verified Demo"};
+
+// Persist the batch on the server DB (data/database.json) rather than
+// localStorage, so it survives refreshes and Consumer Verify can find it
+// from any device/session. Falls back to an in-memory-only batch if the
+// server is unreachable, so the demo still works offline.
+let batch=batchPayload;
+try{
+  const resp=await fetch('/api/batches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(batchPayload)});
+  if(resp.ok) batch=await resp.json();
+}catch(e){ /* offline fallback */ }
+state.batches.push(batch);
+
+addBlock("HARVEST",{batch_id:id,hive_id:h.id,quantity_kg:qty});
+addBlock("QUALITY_STATUS",{batch_id:id,status:"Verified Demo"});
+
+// Every batch also needs a bottle-level QR so the consumer scan resolves
+// to THIS batch's ID. Previously no bottle was ever created for a new
+// batch, so the QR registry (and any scan) never showed the real batch ID.
+const bottlePayload={batch:id,harvest:id,hive:h.id,product:"HiveTrust Honey — "+h.location,origin:h.location,harvestDate:new Date().toLocaleDateString(),moisture:18,status:"ACTIVE"};
+let bottle=null;
+try{
+  const resp=await fetch('/api/bottles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bottlePayload)});
+  if(resp.ok) bottle=await resp.json();
+}catch(e){ /* offline/server unavailable — fall back below */ }
+if(!bottle){
+  bottle={token:'HTV-'+Math.random().toString(36).slice(2,11).toUpperCase(),code:Math.random().toString(36).slice(2,6).toUpperCase()+'-'+Math.random().toString(36).slice(2,6).toUpperCase(),...bottlePayload,scans:0,lastScan:null,verificationEvents:[]};
+}
+localDB.bottles.unshift(bottle);
+saveDB();
+batches();
+}
 function showBatch(id){let b=state.batches.find(x=>x.id===id);$("#detail").innerHTML=`<div class="section card"><h2>🍯 Consumer Verification</h2><div class="split"><div><div class="grid">${card("Batch",b.id,"Unique provenance ID")}${card("Source Hive",b.hive,"Origin")}${card("Quantity",b.qty+" kg","Harvest quantity")}${card("Status","VERIFIED","Demo evidence","low")}</div><div class="success section">✓ Harvest event linked to the HiveTrust ledger.<br>✓ Quality status recorded.<br>✓ QR-ready verification page available.</div></div><div style="display:flex;justify-content:center;align-items:center"><div><div class="qr">QR<br>${b.id}</div><div class="muted" style="margin-top:8px;text-align:center">QR-ready demo</div></div></div></div></div>`}
 
 /* ---------- Alerts ---------- */
@@ -403,9 +446,17 @@ function resetLedger(){state.blocks=[];state.audits=[];addBlock("GENESIS",{messa
 
 /* ---------- Consumer verify ---------- */
 function verify(){$("#content").innerHTML=`<div class="hero"><div><div class="eyebrow" style="color:#9bc8ad">CONSUMER VIEW</div><h2>Verify your honey.</h2><p>Enter a batch ID or a harvest ID to view its demo provenance.</p><div class="actions"><input id="bid" class="input" placeholder="e.g. HC-12345678 or HI-12345678"><button class="btn" onclick="lookup()">Verify</button></div></div><div style="font-size:70px">🍯</div></div><div id="verifyResult" class="section"></div>`}
-function lookup(){
+async function lookup(){
 const id=$("#bid").value.trim();
-const b=state.batches.find(x=>x.id===id);
+let b=state.batches.find(x=>x.id===id);
+if(!b){
+  // Not in this session's local cache — ask the server DB directly, so a
+  // batch created elsewhere (or before this page loaded) can still be found.
+  try{
+    const resp=await fetch('/api/batches/'+encodeURIComponent(id));
+    if(resp.ok) b=await resp.json();
+  }catch(e){ /* server unreachable — fall through to "not found" */ }
+}
 const h=harvestRecords.find(x=>x.id===id);
 if(b){
  $("#verifyResult").innerHTML=`<div class="card"><h2>✓ Batch Verified</h2><div class="grid">${card("Batch",b.id,"Unique ID")}${card("Source Hive",b.hive,b.location)}${card("Quantity",b.qty+" kg","Harvest")}${card("Status","VERIFIED","Demo evidence","low")}</div><div class="success section">The batch is linked to a harvest event and quality status in the demo ledger.</div></div>`;
@@ -428,6 +479,7 @@ async function init() {
   const serverDB = await API.fetchDatabase();
   if (serverDB) {
     localDB = serverDB;
+    state.batches = serverDB.batches || [];
     // keep client-side records (harvests etc.) in localStorage separate from server demo DB
     try { localStorage.setItem(DB_KEY, JSON.stringify(localDB)); } catch (e) {}
   } else {
