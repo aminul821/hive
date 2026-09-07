@@ -1,6 +1,24 @@
 {
   "schema_version": "0.7-demo",
   "note": "Mock local database. Replace with PostgreSQL/managed DB + API in production. Keep lid secrets server-side in production.",
+  "batches": [
+    {
+      "id": "HC-DEMO-001",
+      "hive": "H001",
+      "location": "Assam",
+      "qty": 12.4,
+      "date": "02 Sep 2026",
+      "quality": "Verified Demo"
+    },
+    {
+      "id": "HC-DEMO-002",
+      "hive": "H003",
+      "location": "North Bengal",
+      "qty": 9.8,
+      "date": "28 Aug 2026",
+      "quality": "Verified Demo"
+    }
+  ],
   "bottles": [
     {
       "token": "HTV-7KX92P4",
