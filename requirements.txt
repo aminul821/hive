@@ -1,1 +1,8 @@
 Flask>=3.1,<4.0
+pillow
+web3
+qrcode
+scikit-learn 
+pandas 
+joblib 
+numpy
