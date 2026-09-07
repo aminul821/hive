@@ -1,143 +1,224 @@
-# HoneyChain (HiveTrust AI)
+# 🍯 HoneyChain (HiveTrust AI)
 
 **Blockchain-based smart beekeeping and honey traceability platform** — built for Smart India Hackathon 2026.
 
-HoneyChain combines IoT hive monitoring, a real trained AI model for hive health/yield prediction, and blockchain-backed honey provenance so consumers can verify authenticity from hive to bottle.
+> 🚀 HoneyChain combines IoT hive monitoring, a real trained AI model for hive health/yield prediction, and blockchain-backed honey provenance so consumers can verify authenticity from hive to bottle.
 
 ---
 
-## Feature status (honest, judge-friendly)
+## ✨ Feature Status (Honest, Judge-Friendly)
 
 | Feature | Status | Notes |
 |---|---|---|
-| Bottle authenticity verification | ✅ Real | Server-side (`/api/verify`), backed by a JSON data store |
-| Blockchain record of bottle verification | ✅ Real | Written live to a `HoneyLedger` smart contract on Ethereum **Sepolia testnet** (see `blockchain.py`) |
-| QR code for bottle verification | ✅ Real | Generated server-side (`/api/qr/<token>`), scans open the live verification page |
-| AI hive health / yield prediction | ✅ Real | Trained scikit-learn RandomForest model (`train_model.py`), not a hardcoded formula |
-| IoT sensor ingestion | ✅ Real pipeline / 🔶 Simulated hardware | `/api/sensor-data` is a real, working endpoint; `simulate_sensors.py` stands in for physical sensors we don't have yet |
-| Internal harvest/tamper-audit ledger (Blockchain & Security page) | 🔶 Simulated | A demo tamper-evident hash-chain, separate from the real Ethereum ledger above — kept for demonstrating the[...] |
-| Authentication / role enforcement | 🔶 Demo-only | Role switching (Owner/Auditor/Consumer) is UI-level for demo purposes; not backend-enforced yet |
-| Database | 🔶 JSON file (`data/database.json`) | Sufficient for demo scale; a real deployment would move to Postgres/SQLite |
+| 🍁 Bottle authenticity verification | ✅ Real | Server-side (`/api/verify`), backed by a JSON data store |
+| ⛓️ Blockchain record of bottle verification | ✅ Real | Written live to a `HoneyLedger` smart contract on Ethereum **Sepolia testnet** (see `blockchain.py`) |
+| 📱 QR code for bottle verification | ✅ Real | Generated server-side (`/api/qr/<token>`), scans open the live verification page |
+| 🤖 AI hive health / yield prediction | ✅ Real | Trained scikit-learn RandomForest model (`train_model.py`), not a hardcoded formula |
+| 📡 IoT sensor ingestion | ✅ Real pipeline / 🔶 Simulated hardware | `/api/sensor-data` is a real, working endpoint; `simulate_sensors.py` stands in for physical sensors we don't have yet |
+| 🔐 Internal harvest/tamper-audit ledger | 🔶 Simulated | A demo tamper-evident hash-chain, separate from the real Ethereum ledger above |
+| 🔑 Authentication / role enforcement | 🔶 Demo-only | Role switching (Owner/Auditor/Consumer) is UI-level for demo purposes |
+| 💾 Database | 🔶 JSON file | Sufficient for demo scale; future: PostgreSQL/SQLite |
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
-Browser (role-based dashboard)
+    🌐 Browser (role-based dashboard)
         │
         ▼
-Flask backend (app.py, routes/main.py)
+    🔧 Flask Backend (app.py, routes/main.py)
         │
-        ├── data/database.json  ── bottles, gateways, devices, sensor readings
-        ├── ml_predictor.py     ── loads trained scikit-learn models
-        │        └── models/hive_risk_model.pkl, hive_yield_model.pkl
-        └── blockchain.py       ── web3.py → Ethereum Sepolia → HoneyLedger.sol
+        ├── 📁 data/database.json  ── bottles, gateways, devices, sensor readings
+        ├── 🤖 ml_predictor.py     ── loads trained scikit-learn models
+        │        └── 📊 models/hive_risk_model.pkl, hive_yield_model.pkl
+        └── ⛓️ blockchain.py       ── web3.py → Ethereum Sepolia → HoneyLedger.sol
 ```
 
-**Data flow (bottle verification):**
-`Consumer scans QR → opens /?v=<token> → enters hidden lid code → POST /api/verify → result saved to database.json → event hashed and written to HoneyLedger on Sepolia → tx hash + Ethe[...]`
+**📊 Data Flow (Bottle Verification):**
+```
+🔍 Consumer scans QR → 🌐 opens /?v=<token> → 🔐 enters hidden lid code 
+→ 📤 POST /api/verify → 💾 result saved → ⛓️ HoneyLedger on Sepolia
+```
 
-**Data flow (sensor → AI):**
-`Sensor (real or simulate_sensors.py) → POST /api/sensor-data → reading stored → RandomForest model runs immediately → risk/yield returned and stored alongside the reading`
-
----
-
-## Tech Stack
-
-- **Frontend:** JavaScript, HTML, CSS (role-based dashboard UI)
-- **Backend:** Python, Flask (REST API)
-- **ML/AI:** scikit-learn (RandomForest models)
-- **Blockchain:** Solidity, Web3.py, Ethereum Sepolia testnet
-- **Database:** JSON (demo), future: PostgreSQL/SQLite
-
-**Language Composition:**
-- JavaScript: 62.7%
-- Python: 34.6%
-- HTML: 2.1%
-- Other: 0.6%
+**📈 Data Flow (Sensor → AI):**
+```
+📡 Sensor → 📤 POST /api/sensor-data → 💾 reading stored 
+→ 🤖 RandomForest model → 📊 risk/yield returned
+```
 
 ---
 
-## Setup
+## 🛠️ Tech Stack
+
+```
+┌─────────────────────────────────────────────────┐
+│  🎨 FRONTEND                                    │
+│  • JavaScript (62.7%)                           │
+│  • HTML (2.1%)                                  │
+│  • CSS - Role-based Dashboard UI                │
+└─────────────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────┐
+│  ⚙️ BACKEND                                     │
+│  • Python (34.6%)                               │
+│  • Flask REST API                               │
+└─────────────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────┐
+│  🔬 ML/AI & BLOCKCHAIN                          │
+│  • scikit-learn (RandomForest models)           │
+│  • Solidity Smart Contracts                     │
+│  • Web3.py - Ethereum Sepolia testnet           │
+└─────────────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────┐
+│  💾 DATABASE                                    │
+│  • JSON (demo) → PostgreSQL/SQLite (production) │
+└─────────────────────────────────────────────────┘
+```
+
+---
+
+## 🚀 Setup
 
 ```bash
+# Create virtual environment
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
 
-# One-time: train the AI model
+# Train the AI model (one-time)
 python train_model.py
 
-# Configure secrets
+# Configure environment variables
 cp .env.example .env
-# then edit .env with your real values (see below)
+# Edit .env with your credentials
+
+# Start the server
 python app.py
 ```
 
-### Environment variables (`.env`)
+### 🔐 Environment Variables (`.env`)
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `HIVETRUST_SECRET_KEY` | Yes (non-dev) | Flask session secret |
-| `FLASK_ENV` | Yes | `development` or `production` |
-| `INFURA_SEPOLIA_URL` | For blockchain features | Sepolia RPC endpoint (Infura, or a free public RPC) |
-| `HONEYCHAIN_PRIVATE_KEY` | For blockchain features | Wallet private key used to sign ledger transactions (test wallet only — never a real-funds wallet) |
-| `HONEYLEDGER_CONTRACT_ADDRESS` | For blockchain features | Deployed `HoneyLedger.sol` contract address |
-| `DEVICE_INGEST_KEY` | Optional | If set, `/api/sensor-data` requires this in the `X-Device-Key` header |
+| `HIVETRUST_SECRET_KEY` | ✅ Non-dev | Flask session secret |
+| `FLASK_ENV` | ✅ | `development` or `production` |
+| `INFURA_SEPOLIA_URL` | ⛓️ Blockchain | Sepolia RPC endpoint |
+| `HONEYCHAIN_PRIVATE_KEY` | ⛓️ Blockchain | Test wallet private key |
+| `HONEYLEDGER_CONTRACT_ADDRESS` | ⛓️ Blockchain | Deployed contract address |
+| `DEVICE_INGEST_KEY` | 📡 Optional | Sensor data endpoint key |
 
 ---
 
-## API reference
+## 📡 API Reference
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/api/health` | Health check |
-| GET | `/api/database` | Public (sanitized) view of the demo database |
-| GET | `/api/bottles/<token>` | Public bottle preview |
-| GET | `/api/qr/<token>` | Real QR code PNG for a bottle's verification link |
-| POST | `/api/verify` | Verify a bottle (`{token, code}`) — writes to blockchain if configured |
-| GET | `/api/blockchain/status` | Total records on the ledger |
-| POST | `/api/predict` | AI prediction from sensor values (`{temperature, humidity, weight, activity}`) |
-| POST | `/api/sensor-data` | Ingest one sensor reading for a device; runs AI prediction automatically |
-| GET | `/api/sensor-data/<device_id>` | Recent readings for one device |
+| 🟢 GET | `/api/health` | Health check |
+| 🟢 GET | `/api/database` | Public database view |
+| 🟢 GET | `/api/bottles/<token>` | Bottle preview |
+| 🟢 GET | `/api/qr/<token>` | QR code PNG |
+| 🔵 POST | `/api/verify` | Verify bottle & write to blockchain |
+| 🟢 GET | `/api/blockchain/status` | Ledger records count |
+| 🔵 POST | `/api/predict` | AI prediction from sensor values |
+| 🔵 POST | `/api/sensor-data` | Ingest sensor reading + AI prediction |
+| 🟢 GET | `/api/sensor-data/<device_id>` | Recent device readings |
 
 ---
 
-## Demoing without hardware
+## 🎮 Demo Without Hardware
 
 ```bash
 python simulate_sensors.py --loop
 ```
-This sends realistic sensor readings for every provisioned device every 15 seconds, so the IoT → AI pipeline can be shown live even without physical hive sensors.
+
+📊 This sends realistic sensor readings every 15 seconds, so you can see the IoT → AI pipeline live! 
 
 ---
 
-## Known limitations
+## ⚠️ Known Limitations
 
-- Demo-scale JSON storage, not a production database
-- Role-based access is UI-level, not backend-enforced
-- IoT hardware is simulated (no physical LoRaWAN deployment yet)
-- Internal harvest/tamper ledger is a simulated hash-chain, separate from the real Sepolia ledger used for bottle verification
-- AI model is trained on domain-informed synthetic data (no historical real-world hive dataset yet)
+- 📊 Demo-scale JSON storage (not production-ready)
+- 🔑 Role-based access is UI-level only
+- 📡 IoT hardware is simulated (no LoRaWAN deployment yet)
+- 🔗 Internal harvest ledger is a simulated hash-chain
+- 🤖 AI model trained on synthetic domain data (no historical real-world dataset yet)
 
 ---
 
 ## 👥 Team
 
-| Member | Role | GitHub |
-|--------|------|--------|
-| **Aminul Haque** | Project Lead & Full Stack Developer | [@aminul821](https://github.com/aminul821) |
-| **Veeru Shukla** | Backend Developer | [@veerushukla](https://github.com/veerushukla) |
-| **Aditya Anand** | Vibe Coder & Frontend Developer | [@adiianand](https://github.com/adiianand) |
-| **Anas Khan** | Analyst & Data Scientist | [@1anas1](https://github.com/1anas1) |
-| **Muskan** | Research & Documentation | [@muskansahu479](https://github.com/muskansahu479) |
-| **Siddharth** | Research & Development (R&D) | - |
-
-**Contributing:** We welcome contributions! Please fork this repository and submit pull requests with improvements.
+<table>
+  <tr>
+    <th>👤 Member</th>
+    <th>💼 Role</th>
+    <th>🔗 GitHub</th>
+  </tr>
+  <tr>
+    <td><b>Aminul Haque</b> ⭐</td>
+    <td>Project Lead & Full Stack Developer</td>
+    <td><a href="https://github.com/aminul821">@aminul821</a></td>
+  </tr>
+  <tr>
+    <td><b>Veeru Shukla</b> 🔧</td>
+    <td>Backend Developer</td>
+    <td><a href="https://github.com/veerushukla">@veerushukla</a></td>
+  </tr>
+  <tr>
+    <td><b>Aditya Anand</b> 🎨</td>
+    <td>Vibe Coder & Frontend Developer</td>
+    <td><a href="https://github.com/adiianand">@adiianand</a></td>
+  </tr>
+  <tr>
+    <td><b>Anas Khan</b> 📊</td>
+    <td>Analyst & Data Scientist</td>
+    <td><a href="https://github.com/1anas1">@1anas1</a></td>
+  </tr>
+  <tr>
+    <td><b>Muskan</b> 📚</td>
+    <td>Research & Documentation</td>
+    <td><a href="https://github.com/muskansahu479">@muskansahu479</a></td>
+  </tr>
+  <tr>
+    <td><b>Siddharth</b> 🔬</td>
+    <td>Research & Development (R&D)</td>
+    <td>📝 Coming Soon</td>
+  </tr>
+</table>
 
 ---
 
-## License
+## 🤝 Contributing
 
-MIT License — See LICENSE file for details.
+```
+  Fork → Branch → Commit → Push → Pull Request ✨
+```
+
+We welcome contributions! Please fork this repository and submit pull requests with improvements.
+
+---
+
+## 📜 License
+
+MIT License — See [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+
+### ⭐ If you find HoneyChain helpful, please consider giving us a star! ⭐
+
+**Made with ❤️ by Team HoneyChain**
+
+```
+🐝 Protecting authenticity, one bottle at a time 🍯
+```
+
+</div>
