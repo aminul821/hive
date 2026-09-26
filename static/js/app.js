@@ -637,7 +637,17 @@ async function init() {
   await refreshPredictions();
 
   applyRole();
-  render();
+
+  // Honour the QR deep-link. /api/qr/<token> encodes "<host>/?v=<token>",
+  // so scanning a jar must land the consumer straight on that bottle's
+  // page. tokenFromURL() and openBottleToken() were both already defined
+  // but nothing ever called them, so every scan just opened the dashboard.
+  const urlToken = tokenFromURL();
+  if (urlToken) {
+    openBottleToken(urlToken);   // sets page, renders, prefills, previews
+  } else {
+    render();
+  }
 }
 
 // Call the (async) initializer
