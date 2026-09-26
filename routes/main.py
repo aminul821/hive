@@ -1,80 +1,38 @@
+"""
+routes/main.py
+--------------
+Same endpoints, same response shapes, Postgres underneath instead of
+data/database.json.
+
+static/js/app.js needs no changes for anything that already worked. The
+only additions are the /api/harvests endpoints, which replace the
+browser-local harvest history.
+"""
+
 from pathlib import Path
-import json
-import logging
 import io
-from copy import deepcopy
+import logging
+import os
 from uuid import uuid4
-from datetime import datetime
 
 from flask import Blueprint, jsonify, render_template, request, send_file
 import qrcode
 
 import blockchain
 import ml_predictor
+import integrity
+import store
+from models import db
 
 main_bp = Blueprint("main", __name__)
-
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DB_FILE = BASE_DIR / "data" / "database.json"
-
-# Safe defaults for an empty database
-DEFAULT_DB = {"schema_version": "0.7-demo", "bottles": [], "batches": [], "gateways": [], "devices": []}
 
 
-def load_database():
-    """Load the local JSON database used by the demo.
-
-    This is defensive: it returns a safe default if the file is missing or malformed.
-    """
-    try:
-        if not DB_FILE.exists():
-            return deepcopy(DEFAULT_DB)
-        with DB_FILE.open("r", encoding="utf-8") as file:
-            return json.load(file)
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to load database from %s: %s", DB_FILE, exc)
-        return deepcopy(DEFAULT_DB)
-
-
-def save_database(db: dict):
-    """Atomically save the JSON database back to disk."""
-    try:
-        DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = DB_FILE.with_suffix(".tmp")
-        with tmp.open("w", encoding="utf-8") as f:
-            json.dump(db, f, indent=2, ensure_ascii=False)
-        tmp.replace(DB_FILE)
-    except OSError as exc:
-        logger.error("Failed to save database to %s: %s", DB_FILE, exc)
-        raise
-
-
-def public_database(db: dict) -> dict:
-    """Return a sanitized copy of the database suitable for public preview.
-
-    This removes any private lid codes ("code") from bottle records and
-    never exposes server-only secrets.
-    """
-    pub = deepcopy(db)
-    for b in pub.get("bottles", []):
-        if isinstance(b, dict):
-            b.pop("code", None)
-    return pub
-
-
-def find_bottle(db: dict, token: str):
-    if not token:
-        return None
-    return next((b for b in db.get("bottles", []) if b.get("token") == token), None)
-
-
-def find_batch(db: dict, batch_id: str):
-    if not batch_id:
-        return None
-    return next((b for b in db.get("batches", []) if b.get("id") == batch_id), None)
-
+# --------------------------------------------------------------------------
+# pages
+# --------------------------------------------------------------------------
 
 @main_bp.get("/")
 def index():
@@ -83,134 +41,107 @@ def index():
 
 @main_bp.get("/api/health")
 def health():
+    """Also what the Supabase keepalive workflow pings -- it runs a real
+    query, which is what counts as activity against the 7-day pause."""
+    try:
+        db.session.execute(db.text("SELECT 1"))
+        database = "up"
+    except Exception:                                    # noqa: BLE001
+        logger.exception("Database health check failed")
+        database = "down"
+
     return jsonify({
-        "status": "ok",
+        "status": "ok" if database == "up" else "degraded",
         "service": "HiveTrust AI",
-        "python_database": "JSON local demo",
-    })
+        "python_database": "Postgres (Supabase)",
+        "database": database,
+        "blockchain_configured": blockchain.is_configured(),
+        "ml_model_loaded": ml_predictor.is_available(),
+    }), (200 if database == "up" else 503)
 
 
 @main_bp.get("/api/database")
 def api_database():
-    db = load_database()
-    return jsonify(public_database(db))
+    """Unchanged shape. Lid codes are never included."""
+    return jsonify(store.public_database())
 
+
+@main_bp.get("/api/stats")
+def api_stats():
+    return jsonify(store.stats())
+
+
+# --------------------------------------------------------------------------
+# bottles
+# --------------------------------------------------------------------------
 
 @main_bp.get("/api/bottles/<token>")
 def api_bottle(token):
-    db = load_database()
-    b = find_bottle(db, token)
-    if not b:
+    bottle = store.find_bottle(token)
+    if not bottle:
         return jsonify({"error": "not_found"}), 404
-    pub = deepcopy(b)
-    pub.pop("code", None)
-    return jsonify(pub)
-
-
-@main_bp.post("/api/batches")
-def api_create_batch():
-    """Registers a honey batch server-side (data/database.json) instead of
-    the browser's localStorage, so it survives refreshes and is visible to
-    Consumer Verify from any device/session, not just the one that created it.
-
-    Expected JSON body: {"hive": "H001", "location": "...", "qty": 12.3,
-    "date": "...", "quality": "Verified Demo", "id": "HC-..." (optional)}
-    """
-    payload = request.get_json(silent=True) or {}
-    batch_id = payload.get("id") or ("HC-" + uuid4().hex[:8].upper())
-
-    db = load_database()
-    if find_batch(db, batch_id):
-        return jsonify({"error": "batch_id_exists"}), 409
-
-    batch = {
-        "id": batch_id,
-        "hive": payload.get("hive", ""),
-        "location": payload.get("location", ""),
-        "qty": payload.get("qty"),
-        "date": payload.get("date", datetime.now().strftime("%d %b %Y")),
-        "quality": payload.get("quality", "Verified Demo"),
-    }
-    db.setdefault("batches", []).append(batch)
-    try:
-        save_database(db)
-    except Exception:
-        logger.exception("Failed to persist batch %s", batch_id)
-        return jsonify({"error": "storage_failed"}), 500
-
-    return jsonify(batch), 201
-
-
-@main_bp.get("/api/batches/<batch_id>")
-def api_get_batch(batch_id):
-    """Looks up one batch by ID — used by Consumer Verify so a batch created
-    on one device/session can still be verified from another."""
-    db = load_database()
-    b = find_batch(db, batch_id)
-    if not b:
-        return jsonify({"error": "not_found"}), 404
-    return jsonify(b)
+    return jsonify(bottle.to_dict())
 
 
 @main_bp.post("/api/bottles")
 def api_create_bottle():
-    """Registers a new bottle (QR-ready) for a honey batch.
-
-    This is what makes a freshly created batch immediately scannable: without
-    it, no bottle/token exists for the batch, so the consumer QR registry and
-    any scan of that batch never had a real bottle to show a batch ID for.
-
-    Expected JSON body (only "batch" is required):
-    {
-      "batch": "HC-...", "hive": "H001", "product": "...", "origin": "...",
-      "harvestDate": "02 Sep 2026", "moisture": 18
-    }
-    """
     payload = request.get_json(silent=True) or {}
-    batch = payload.get("batch")
-    if not batch:
+    if not payload.get("batch"):
         return jsonify({"error": "batch is required"}), 400
 
-    token = "HTV-" + uuid4().hex[:9].upper()
-    code = f"{uuid4().hex[:4].upper()}-{uuid4().hex[:4].upper()}"
+    if not store.find_batch(payload["batch"]):
+        return jsonify({"error": "unknown_batch"}), 404
 
-    bottle = {
-        "token": token,
-        "code": code,
-        "batch": batch,
-        "harvest": payload.get("harvest", batch),
-        "hive": payload.get("hive", ""),
-        "product": payload.get("product", "Honey"),
-        "origin": payload.get("origin", ""),
-        "harvestDate": payload.get("harvestDate", datetime.now().strftime("%d %b %Y")),
-        "moisture": payload.get("moisture"),
-        "status": payload.get("status", "ACTIVE"),
-        "scans": 0,
-        "lastScan": None,
-        "verificationEvents": [],
-    }
-
-    db = load_database()
-    db.setdefault("bottles", []).append(bottle)
     try:
-        save_database(db)
-    except Exception:
-        logger.exception("Failed to persist new bottle for batch %s", batch)
+        bottle = store.create_bottle(payload)
+    except Exception:                                    # noqa: BLE001
+        db.session.rollback()
+        logger.exception("Failed to create bottle for batch %s",
+                         payload.get("batch"))
         return jsonify({"error": "storage_failed"}), 500
 
-    return jsonify(bottle), 201
+    # The lid code IS returned here, once, because whoever registers the
+    # bottle has to physically print it. It is never served again.
+    return jsonify(bottle.to_dict(include_code=True)), 201
 
+
+# --------------------------------------------------------------------------
+# batches
+# --------------------------------------------------------------------------
+
+@main_bp.post("/api/batches")
+def api_create_batch():
+    payload = request.get_json(silent=True) or {}
+    batch_id = payload.get("id") or ("HC-" + uuid4().hex[:8].upper())
+
+    if store.find_batch(batch_id):
+        return jsonify({"error": "batch_id_exists"}), 409
+
+    try:
+        batch = store.create_batch({**payload, "id": batch_id})
+    except Exception:                                    # noqa: BLE001
+        db.session.rollback()
+        logger.exception("Failed to persist batch %s", batch_id)
+        return jsonify({"error": "storage_failed"}), 500
+
+    return jsonify(batch.to_dict()), 201
+
+
+@main_bp.get("/api/batches/<batch_id>")
+def api_get_batch(batch_id):
+    batch = store.find_batch(batch_id)
+    if not batch:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify(batch.to_dict())
+
+
+# --------------------------------------------------------------------------
+# QR
+# --------------------------------------------------------------------------
 
 @main_bp.get("/api/qr/<token>")
 def api_qr(token):
-    """Generates a real, scannable QR code PNG for a bottle's public verification link.
-
-    Scanning it opens this app with ?v=<token>, which the frontend already
-    reads (see tokenFromURL/openBottleToken in app.js) to jump straight to
-    that bottle's Bottle Authenticity page.
-    """
-    db = load_database()
-    if not find_bottle(db, token):
+    if not store.find_bottle(token):
         return jsonify({"error": "not_found"}), 404
 
     verify_url = f"{request.host_url.rstrip('/')}/?v={token}"
@@ -221,177 +152,227 @@ def api_qr(token):
     return send_file(buf, mimetype="image/png")
 
 
+# --------------------------------------------------------------------------
+# sensors
+# --------------------------------------------------------------------------
+
 @main_bp.post("/api/sensor-data")
 def api_sensor_data():
-    """Ingests one sensor reading from a hive device (real hardware or the simulator script).
-
-    Expected JSON body:
-    {
-        "device_id": "HT-HIVE-001",
-        "temperature": 33.2, "humidity": 61, "weight": 42.5, "activity": 72,
-        "battery": 88
-    }
-
-    Optional header "X-Device-Key" is checked against DEVICE_INGEST_KEY if that
-    env var is set, so ingestion can be authenticated in a real deployment.
-    """
-    import os
     expected_key = os.environ.get("DEVICE_INGEST_KEY")
     if expected_key and request.headers.get("X-Device-Key") != expected_key:
         return jsonify({"error": "unauthorized"}), 401
 
     payload = request.get_json(silent=True)
     if not payload or "device_id" not in payload:
-        return jsonify({"error": "invalid_json", "detail": "device_id is required"}), 400
+        return jsonify({"error": "invalid_json",
+                        "detail": "device_id is required"}), 400
 
-    device_id = payload["device_id"]
     try:
         temperature = float(payload.get("temperature"))
         humidity = float(payload.get("humidity"))
         weight = float(payload.get("weight"))
         activity = float(payload.get("activity"))
     except (TypeError, ValueError):
-        return jsonify({"error": "temperature, humidity, weight and activity must all be numbers"}), 400
+        return jsonify({"error": "temperature, humidity, weight and activity "
+                                 "must all be numbers"}), 400
 
-    db = load_database()
-    device = next((d for d in db.get("devices", []) if d.get("id") == device_id), None)
+    device = store.find_device(payload["device_id"])
     if not device:
         return jsonify({"error": "unknown_device"}), 404
 
-    now = datetime.now().strftime("%d %b %Y, %H:%M")
-    reading = {
-        "time": now,
-        "temperature": temperature,
-        "humidity": humidity,
-        "weight": weight,
-        "activity": activity,
-    }
-    device.setdefault("readings", []).append(reading)
-    device["readings"] = device["readings"][-50:]  # keep the last 50 readings
-    device["lastReading"] = now
-    if "battery" in payload:
-        try:
-            device["battery"] = float(payload["battery"])
-        except (TypeError, ValueError):
-            pass
-    device["status"] = "ONLINE"
-
-    # Run the real ML model on this reading right away, so the reading and its
-    # AI assessment are captured together.
     prediction = None
     try:
         prediction = ml_predictor.predict(temperature, humidity, weight, activity)
-        reading["prediction"] = prediction
     except RuntimeError:
-        pass  # model not trained yet — ingestion still succeeds
+        pass          # model not trained yet; ingestion still succeeds
 
     try:
-        save_database(db)
-    except Exception:
-        logger.exception("Failed to persist sensor reading for %s", device_id)
+        reading = store.add_reading(
+            device, temperature, humidity, weight, activity,
+            battery=payload.get("battery"), prediction=prediction,
+        )
+    except Exception:                                    # noqa: BLE001
+        db.session.rollback()
+        logger.exception("Failed to persist reading for %s", device.id)
         return jsonify({"error": "storage_failed"}), 500
 
-    return jsonify({"stored": True, "device_id": device_id, "reading": reading, "prediction": prediction})
+    return jsonify({"stored": True, "device_id": device.id,
+                    "reading": reading, "prediction": prediction})
 
 
 @main_bp.get("/api/sensor-data/<device_id>")
 def api_sensor_history(device_id):
-    """Returns recent readings for one device, for dashboard charts."""
-    db = load_database()
-    device = next((d for d in db.get("devices", []) if d.get("id") == device_id), None)
-    if not device:
+    if not store.find_device(device_id):
         return jsonify({"error": "unknown_device"}), 404
-    return jsonify({"device_id": device_id, "readings": device.get("readings", [])})
+    limit = min(int(request.args.get("limit", 50)), 500)
+    return jsonify({"device_id": device_id,
+                    "readings": store.recent_readings(device_id, limit)})
 
+
+# --------------------------------------------------------------------------
+# verification
+# --------------------------------------------------------------------------
 
 @main_bp.post("/api/verify")
 def api_verify():
-    """Verify a bottle by token + code.
-
-    Expected JSON body: {"token": "HTV-...", "code": "X7K9-P4M2"}
-
-    The server records the verification event and returns a compact report.
-    """
     payload = request.get_json(silent=True)
     if not payload:
         return jsonify({"error": "invalid_json"}), 400
+
     token = payload.get("token", "")
     code = (payload.get("code") or "").strip().upper()
 
-    db = load_database()
-    b = find_bottle(db, token)
-    if not b:
+    bottle = store.find_bottle(token)
+    if not bottle:
         return jsonify({"error": "unknown_token"}), 404
 
-    # Create a session id for this verification
     session_id = "S-" + uuid4().hex[:8].upper()
-    now = datetime.now().strftime("%d %b %Y, %H:%M")
 
-    # Default result
-    if code != (b.get("code") or "").upper():
-        result = "FAILED_CODE"
-        note = "Incorrect hidden code"
+    if code != (bottle.code or "").upper():
+        result, note = "FAILED_CODE", "Incorrect hidden code"
     else:
-        # Determine suspicious reuse / clone heuristics (same as demo client)
-        recent = (b.get("verificationEvents") or [])[-5:]
-        suspicious = sum(1 for e in recent if e.get("result") in ("AUTHENTIC", "AUTHENTIC_FIRST_SCAN")) >= 2 or (b.get("scans") or 0) >= 4
+        recent = bottle.events[-5:]
+        suspicious = (
+            sum(1 for e in recent
+                if e.result in ("AUTHENTIC", "AUTHENTIC_FIRST_SCAN")) >= 2
+            or (bottle.scans or 0) >= 4
+        )
         result = "POSSIBLE_CLONE" if suspicious else "AUTHENTIC"
-        note = "Repeated credential use flagged" if suspicious else "Valid physical credential"
+        note = ("Repeated credential use flagged" if suspicious
+                else "Valid physical credential")
 
-    # Record the event server-side
-    b["scans"] = (b.get("scans") or 0) + 1
-    b["lastScan"] = now
-    b.setdefault("verificationEvents", []).append({"time": now, "result": result, "session": session_id, "note": note})
-
-    # Persist the DB
-    try:
-        save_database(db)
-    except Exception:
-        logger.exception("Failed to persist verification event")
-        # Don't fail the verification — persist failure shouldn't block the API result
-
-    # Record a tamper-evident fingerprint of this verification on the blockchain.
-    # This is best-effort: if the testnet is slow/unavailable, the demo must not break.
+    # Anchor to Sepolia first so the tx hash is stored with the event
+    # rather than floating loose. Best-effort: a slow testnet must never
+    # break verification.
     blockchain_info = None
+    tx_hash = None
     if blockchain.is_configured():
         try:
             blockchain_info = blockchain.add_record(
                 "BOTTLE_VERIFICATION",
-                {"token": token, "result": result, "session": session_id, "time": now},
+                {"token": token, "result": result,
+                 "session": session_id, "time": store.display_now()},
             )
-        except Exception:
-            logger.exception("Blockchain write failed for verification %s", session_id)
+            tx_hash = blockchain_info.get("tx_hash")
+        except Exception:                                # noqa: BLE001
+            logger.exception("Blockchain write failed for %s", session_id)
 
-    # Return a sanitized report
-    report = {
+    try:
+        store.record_verification(bottle, result, session_id, note, tx_hash)
+    except Exception:                                    # noqa: BLE001
+        db.session.rollback()
+        logger.exception("Failed to persist verification event")
+
+    return jsonify({
         "result": result,
         "session": session_id,
         "note": note,
-        "bottle": {k: v for k, v in b.items() if k != "code"},
-        "blockchain": blockchain_info,  # None if blockchain isn't configured or the write failed
-    }
-    return jsonify(report)
+        "bottle": bottle.to_dict(),
+        "blockchain": blockchain_info,
+    })
 
+
+# --------------------------------------------------------------------------
+# harvest integrity -- previously localStorage only
+# --------------------------------------------------------------------------
+
+@main_bp.get("/api/harvests")
+def api_list_harvests():
+    """Every harvest event, shared across devices and operators."""
+    return jsonify({
+        "harvests": store.list_harvests(),
+        "mismatch_counts": store.hive_mismatch_counts(),
+    })
+
+
+@main_bp.post("/api/harvests")
+def api_create_harvest():
+    """
+    Record a harvest and run the integrity rules server-side.
+
+    The verdict is computed here, not in the browser. Previously the
+    operator being audited could edit the audit; now the status and
+    reasons are assigned by the server and the client cannot override
+    them -- any `status` in the request body is ignored.
+    """
+    payload = request.get_json(silent=True)
+    if not payload:
+        return jsonify({"error": "invalid_json"}), 400
+
+    hives = payload.get("hives") or []
+    if not hives:
+        return jsonify({"error": "at least one hive is required"}), 400
+
+    if payload.get("drop") is None:
+        payload["drop"] = integrity.total_drop(hives)
+
+    status, reasons, evidence = integrity.evaluate(payload)
+
+    tx_hash = None
+    blockchain_info = None
+    if blockchain.is_configured():
+        try:
+            blockchain_info = blockchain.add_record(
+                "HARVEST_VERIFICATION",
+                {"hives": hives, "drop": payload["drop"],
+                 "extracted": payload.get("extracted"),
+                 "recorded": payload.get("recorded"),
+                 "status": status, "time": store.display_now()},
+            )
+            tx_hash = blockchain_info.get("tx_hash")
+        except Exception:                                # noqa: BLE001
+            logger.exception("Blockchain write failed for harvest")
+
+    try:
+        record = store.create_harvest(
+            payload, status, reasons,
+            block_hash=(blockchain_info or {}).get("data_hash"),
+            tx_hash=tx_hash,
+        )
+    except Exception:                                    # noqa: BLE001
+        db.session.rollback()
+        logger.exception("Failed to persist harvest record")
+        return jsonify({"error": "storage_failed"}), 500
+
+    return jsonify({
+        "harvest": record.to_dict(),
+        "status": status,
+        "reasons": reasons,
+        "evidence": evidence,
+        "blockchain": blockchain_info,
+    }), 201
+
+
+@main_bp.post("/api/harvests/evaluate")
+def api_evaluate_harvest():
+    """Dry run: check a harvest without saving it, for live UI feedback."""
+    payload = request.get_json(silent=True) or {}
+    status, reasons, evidence = integrity.evaluate(payload)
+    return jsonify({"status": status, "reasons": reasons,
+                    "evidence": evidence})
+
+
+# --------------------------------------------------------------------------
+# blockchain + ML
+# --------------------------------------------------------------------------
 
 @main_bp.get("/api/blockchain/status")
 def api_blockchain_status():
-    """Lets the frontend show live blockchain ledger stats on the Blockchain & Security page."""
-    if not blockchain.is_configured():
-        return jsonify({"configured": False})
+    problem = blockchain.config_problem()
+    if problem:
+        # 200, not an error status: the app is working fine, on-chain
+        # anchoring is simply switched off. The UI says so plainly.
+        return jsonify({"configured": False, "reason": problem})
     try:
-        total = blockchain.get_total_records()
-        return jsonify({"configured": True, "total_records": total})
-    except Exception:
-        logger.exception("Failed to read blockchain status")
+        return jsonify({"configured": True,
+                        "total_records": blockchain.get_total_records()})
+    except Exception as exc:                             # noqa: BLE001
+        logger.warning("Blockchain unreachable: %s", exc)
         return jsonify({"configured": True, "error": "unreachable"}), 503
 
 
 @main_bp.post("/api/predict")
 def api_predict():
-    """Real ML-based hive health/yield prediction.
-
-    Expected JSON body: {"temperature": 33, "humidity": 60, "weight": 40, "activity": 70}
-    """
     payload = request.get_json(silent=True)
     if not payload:
         return jsonify({"error": "invalid_json"}), 400
@@ -401,14 +382,15 @@ def api_predict():
         weight = float(payload.get("weight"))
         activity = float(payload.get("activity"))
     except (TypeError, ValueError):
-        return jsonify({"error": "temperature, humidity, weight and activity must all be numbers"}), 400
+        return jsonify({"error": "temperature, humidity, weight and activity "
+                                 "must all be numbers"}), 400
 
     try:
-        result = ml_predictor.predict(temperature, humidity, weight, activity)
-        return jsonify(result)
+        return jsonify(ml_predictor.predict(temperature, humidity,
+                                            weight, activity))
     except RuntimeError as exc:
         logger.error("ML model not available: %s", exc)
         return jsonify({"error": "model_not_trained", "detail": str(exc)}), 503
-    except Exception:
+    except Exception:                                    # noqa: BLE001
         logger.exception("Prediction failed")
         return jsonify({"error": "prediction_failed"}), 500

@@ -72,7 +72,7 @@ let localDB = null; // will be initialized during init()
 
 function saveDB() {
   try {
-    localStorage.setItem(DB_KEY, JSON.stringify(localDB));
+    localStorage.setItem(DB_KEY, JSON.stringify(localDB));  // offline cache only
   } catch (e) {
     console.warn('Failed to save local DB', e);
   }
@@ -120,7 +120,7 @@ async function auth() {
   <div id="authReport" class="section"></div>
   <div class="section card"><div class="section-head"><h2>🛡️ Anti-cloning logic</h2><span class="pill">Demo</span></div><div class="kpi-grid">
   ${card('QR token','Public','Safe to preview')}${card('Lid code','Private','Physical credential')}${card('Session ID','Ephemeral','Per verification')}${card('Scan history','Recorded','Anomaly signal')}${card('Blockchain','Linked','Verification event')}
-  </div><div class="warn-strip" style="margin-top:14px"><b>Production note:</b> In this static demo the JSON/localStorage database is browser-side. A real deployment must keep the lid secret server-side and validate it through an API.</div></div>`;
+  </div><div class="warn-strip" style="margin-top:14px"><b>Architecture:</b> Records are stored server-side in Postgres and verified through the API. The hidden lid code never leaves the server — it is written once when a bottle is registered and is never returned by any read endpoint.</div></div>`;
   if (urlToken) await showBottlePreview();
 }
 
@@ -205,12 +205,58 @@ async function unlockBottle() {
 const state={hives:[
 {id:"H001",location:"Assam",t:33.2,h:61,w:48.2,a:86},{id:"H002",location:"Muzaffarpur",t:36.8,h:72,w:42.5,a:58},{id:"H003",location:"North Bengal",t:31.5,h:55,w:51,a:91},{id:"H004",location:"Bihar",t:34,h:65,w:45.8,a:76}],batches:[],blocks:[],audits:[]};
 // Batches now live server-side (data/database.json) — see init(), which
-// loads state.batches from /api/database — instead of localStorage, so
+// loads state.batches from /api/database (Postgres), so
 // they survive refreshes and are visible from any device/session.
-function predictor(x){let s=100,r=[];if(x.t<30||x.t>36){s-=18;r.push("temperature outside preferred range")}if(x.h<45||x.h>75){s-=15;r.push("humidity unusual")}if(x.a<55){s-=22;r.push("bee activity low")}if(x.w<35){s-=15;r.push("hive weight low")}s=Math.max(0,Math.min(100,s));let risk=s>=80?"Low":s>=60?"Medium":"High";let base=Math.max(2,(x.w-30)*.65+x.a*.025);return{score:s,risk,ymin:(base*(.82+s/500)).toFixed(1),ymax:(base*(1.05+s/400)).toFixed(1),reason:r.join("; ")||"all monitored parameters are within demo baseline"}}
-function hash(str){let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return("00000000"+(h>>>0).toString(16)).slice(-8).repeat(8)}
-function addBlock(type,payload){let prev=state.blocks.length?state.blocks[state.blocks.length-1].hash:"0".repeat(64);let raw=type+JSON.stringify(payload)+prev;let h=hash(raw);state.blocks.push({idx:state.blocks.length+1,ts:new Date().toLocaleString(),type,payload,prev,hash:h});}
-function validChain(){let prev="0".repeat(64);for(const b of state.blocks){if(b.prev!==prev)return{ok:false,bad:b.idx};if(b.hash!==hash(b.type+JSON.stringify(b.payload)+b.prev))return{ok:false,bad:b.idx};prev=b.hash}return{ok:true}}
+// Fallback only. The REAL prediction comes from the trained RandomForest
+// models via POST /api/predict (see ml_predictor.py). This heuristic runs
+// when the model has not been trained yet -- models/*.pkl are build
+// artifacts, so run `python train_model.py` once -- or when the request
+// fails. Results from it are labelled in the UI so nobody mistakes the
+// fallback for the model.
+function heuristicPredictor(x){let s=100,r=[];if(x.t<30||x.t>36){s-=18;r.push("temperature outside preferred range")}if(x.h<45||x.h>75){s-=15;r.push("humidity unusual")}if(x.a<55){s-=22;r.push("bee activity low")}if(x.w<35){s-=15;r.push("hive weight low")}s=Math.max(0,Math.min(100,s));let risk=s>=80?"Low":s>=60?"Medium":"High";let base=Math.max(2,(x.w-30)*.65+x.a*.025);return{score:s,risk,ymin:(base*(.82+s/500)).toFixed(1),ymax:(base*(1.05+s/400)).toFixed(1),reason:r.join("; ")||"all monitored parameters are within demo baseline",source:"heuristic"}}
+
+// Ask the server's trained model for every hive at once, then cache the
+// answers so render() stays synchronous. Falls back per-hive if the model
+// is unavailable, rather than failing the whole dashboard.
+let mlCache = {};
+async function refreshPredictions(){
+  await Promise.all(state.hives.map(async x => {
+    try{
+      const res = await fetch('/api/predict', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ temperature:x.t, humidity:x.h, weight:x.w, activity:x.a })
+      });
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+      mlCache[x.id] = {
+        score: Math.round(d.confidence),
+        risk: d.risk,
+        ymin: (d.predicted_yield_kg * 0.9).toFixed(1),
+        ymax: (d.predicted_yield_kg * 1.1).toFixed(1),
+        reason: d.reason,
+        source: 'model',
+        model: d.model
+      };
+    }catch(e){
+      delete mlCache[x.id];   // fall back to the heuristic for this hive
+    }
+  }));
+}
+
+// Single entry point used by every page. Prefers the trained model, falls
+// back to the heuristic, and always reports which one produced the number.
+function predictor(x){ return mlCache[x.id] || heuristicPredictor(x) }
+// A 32-bit FNV-1a value, padded out to look like a 64-character digest.
+// This is NOT SHA-256 and is NOT cryptographic -- it exists only to drive
+// the Security Lab tamper demonstration below, which illustrates how a
+// chained-hash ledger detects modification.
+//
+// The REAL tamper-evidence in this project is the HoneyLedger contract on
+// Ethereum Sepolia (see blockchain.py). Harvest and bottle verifications
+// are anchored there and return a genuine transaction hash.
+function demoHash(str){let h=2166136261;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)}return("00000000"+(h>>>0).toString(16)).slice(-8).repeat(8)}
+function addBlock(type,payload){let prev=state.blocks.length?state.blocks[state.blocks.length-1].hash:"0".repeat(64);let raw=type+JSON.stringify(payload)+prev;let h=demoHash(raw);state.blocks.push({idx:state.blocks.length+1,ts:new Date().toLocaleString(),type,payload,prev,hash:h});}
+function validChain(){let prev="0".repeat(64);for(const b of state.blocks){if(b.prev!==prev)return{ok:false,bad:b.idx};if(b.hash!==demoHash(b.type+JSON.stringify(b.payload)+b.prev))return{ok:false,bad:b.idx};prev=b.hash}return{ok:true}}
 addBlock("GENESIS",{message:"HiveTrust demo ledger initialized"});
 function card(t,v,s,c=""){return`<div class="card"><div class="muted">${t}</div><div class="metric ${c}">${v}</div><div class="muted">${s}</div></div>`}
 
@@ -219,9 +265,28 @@ function applyRole(){document.querySelectorAll(".nav").forEach(b=>{b.style.displ
 function setRole(v){role=v;localStorage.setItem("hivetrust_role",v);if(!ROLE_PAGES[role].includes(page))page=ROLE_PAGES[role][0];applyRole();render()}
 
 /* ---------- Harvest Integrity ---------- */
-let harvestRecords=JSON.parse(localStorage.getItem("hivetrust_harvest_records")||"[]");
-function saveHarvest(){localStorage.setItem("hivetrust_harvest_records",JSON.stringify(harvestRecords))}
-function hiveMismatchCounts(){const c={};harvestRecords.filter(r=>r.status==="MISMATCH").forEach(r=>{(r.hives||[{hive:r.hive}]).forEach(h=>{c[h.hive]=(c[h.hive]||0)+1})});return c}
+// Harvest records live server-side (Postgres via /api/harvests). A mismatch
+// found on one device is now visible to everyone, survives a cleared cache,
+// and cannot be edited by the operator being audited.
+let harvestRecords = [];
+let mismatchCounts = {};
+
+async function loadHarvests(){
+  try{
+    const res = await fetch('/api/harvests', { cache: 'no-store' });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    harvestRecords = data.harvests || [];
+    mismatchCounts = data.mismatch_counts || {};
+  }catch(e){
+    console.warn('Could not load harvest history:', e);
+    harvestRecords = [];
+    mismatchCounts = {};
+  }
+}
+
+// Computed server-side across every operator's records, not just this browser's.
+function hiveMismatchCounts(){ return mismatchCounts }
 
 let harvestRows=[];
 function freshHarvestRows(){const h=state.hives[0];harvestRows=[{hive:h.id,before:h.w,after:+(Math.max(1,h.w-8)).toFixed(1)}]}
@@ -289,20 +354,51 @@ return reasons;
 function harvestCard(r){
 const hs=r.hives||[{hive:r.hive,before:r.before,after:r.after,drop:r.drop}];
 return `<div class="event"><div class="section-head"><b>${r.id} · ${hs.map(h=>h.hive).join(" + ")}</b><span class="badge ${r.status==="MATCH"?"low":"high"}">${r.status}</span></div><div class="grid"><div><div class="muted">Expected (from weight)</div><b>${r.drop.toFixed(1)} kg</b></div><div><div class="muted">Extracted</div><b>${r.extracted.toFixed(1)} kg</b></div><div><div class="muted">Batch record</div><b>${r.recorded.toFixed(1)} kg</b></div><div><div class="muted">Moisture</div><b>${r.moisture!=null?r.moisture+"%":"—"}</b></div></div><p class="muted">${esc(r.explanation)}</p>${(r.reasons&&r.reasons.length)?`<ul style="margin:6px 0 0 18px;padding:0;color:#8d2e2e;font-size:13px">${r.reasons.map(x=>`<li style="margin:3px 0">${esc(x)}</li>`).join("")}</ul>`:""}<div class="hash">Blockchain verification hash: ${r.blockHash}</div><div style="margin-top:8px"><button class="btn secondary" onclick="openHarvestVerify('${r.id}')">🔍 Consumer Link (${r.id})</button></div></div>`}
-function verifyHarvest(){
+async function verifyHarvest(){
 syncHarvestRows();
 for(const row of harvestRows){if(row.before<0||row.after<0||row.after>row.before){$("#harvestResult").innerHTML=`<div class="dangerbox section"><b>Invalid measurement for ${esc(row.hive)}.</b><br>Post-harvest weight cannot exceed pre-harvest weight.</div>`;return}}
 const extracted=+$("#extracted").value||0,recorded=+$("#recorded").value||0,moisture=+$("#moisture").value||18;
 if(extracted<0||recorded<0){$("#harvestResult").innerHTML='<div class="dangerbox section"><b>Invalid measurement.</b></div>';return}
 const drop=+harvestRows.reduce((a,r)=>a+(r.before-r.after),0).toFixed(2);
 const tol=+(0.5*harvestRows.length+(moisture>20?0.3:0)).toFixed(2);
-const wm=Math.abs(drop-extracted)<=tol,rm=Math.abs(extracted-recorded)<=tol,status=wm&&rm?"MATCH":"MISMATCH";
-const reasons=status==="MISMATCH"?explainMismatch(drop,extracted,recorded,tol,moisture):[];
+const wm=Math.abs(drop-extracted)<=tol,rm=Math.abs(extracted-recorded)<=tol;
+// Provisional only -- the server overwrites both below. Kept so the UI
+// has something to show if the request fails.
+let status=wm&&rm?"MATCH":"MISMATCH";
+let reasons=status==="MISMATCH"?explainMismatch(drop,extracted,recorded,tol,moisture):[];
 const hivesInfo=harvestRows.map(row=>({hive:row.hive,before:row.before,after:row.after,drop:+(row.before-row.after).toFixed(2)}));
 const explanation=status==="MATCH"?`Combined weight reduction (${drop.toFixed(1)} kg across ${harvestRows.length} hive${harvestRows.length>1?"s":""}) matches extracted honey (${extracted.toFixed(1)} kg), and the batch record (${recorded.toFixed(1)} kg) is within tolerance.`:`Combined weight reduction (${drop.toFixed(1)} kg), extracted honey (${extracted.toFixed(1)} kg) and batch record (${recorded.toFixed(1)} kg) do not agree.`;
 const r={id:"HI-"+Date.now().toString().slice(-8),hives:hivesInfo,hive:hivesInfo.map(h=>h.hive).join(" + "),before:hivesInfo.reduce((a,x)=>a+x.before,0),after:hivesInfo.reduce((a,x)=>a+x.after,0),drop,extracted,recorded,moisture,status,explanation,reasons,time:new Date().toLocaleString(),blockHash:""};
-r.blockHash=hash(JSON.stringify(r));harvestRecords.push(r);saveHarvest();
-addBlock("HARVEST_VERIFICATION",{harvest_id:r.id,hives:hivesInfo,weight_drop_kg:drop,extracted_kg:extracted,recorded_batch_kg:recorded,moisture_pct:moisture,status,tolerance_kg:tol,verification_hash:r.blockHash});
+// The SERVER decides MATCH vs MISMATCH. The client no longer grades its own
+// homework: whatever we computed above is replaced by the server's verdict,
+// the record is written to Postgres, and the event is anchored to Sepolia --
+// all in this one call.
+let serverVerdict = null;
+try{
+  const resp = await fetch('/api/harvests', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ id:r.id, hives:hivesInfo, drop, extracted, recorded, moisture, time:r.time })
+  });
+  if(resp.ok){
+    serverVerdict = await resp.json();
+    status      = serverVerdict.status;                 // authoritative
+    reasons     = serverVerdict.reasons || [];
+    r.status    = status;
+    r.reasons   = reasons;
+    r.blockHash = serverVerdict.harvest.blockHash || '';
+    r.tx_hash   = serverVerdict.harvest.tx_hash || null;
+    await loadHarvests();
+  }else{
+    console.warn('Harvest not saved:', resp.status);
+    r.blockHash = '';
+    harvestRecords.push(r);
+  }
+}catch(e){
+  console.warn('Harvest not saved:', e);
+  r.blockHash = '';
+  harvestRecords.push(r);
+}
 const resultHtml=`<div class="${status==="MATCH"?"success":"dangerbox"} section"><h2>${status==="MATCH"?"🟢 HARVEST VERIFIED":"🔴 WEIGHT ERROR — HARVEST MISMATCH"}</h2><p>${esc(explanation)}</p>
 ${reasons.length?`<div class="dangerbox" style="margin:10px 0"><b>Likely reason(s) — show this to the hive owner:</b><ul style="margin:8px 0 0 18px;padding:0">${reasons.map(x=>`<li style="margin:4px 0">${esc(x)}</li>`).join("")}</ul></div>`:""}
 <div class="calc">Hives: ${hivesInfo.map(h=>`${h.hive} (${h.drop.toFixed(1)} kg)`).join(", ")}
@@ -394,7 +490,7 @@ let id="HC-"+Date.now().toString().slice(-8),h=state.hives.find(x=>x.id===$("#se
 const batchPayload={id,hive:h.id,location:h.location,qty,date:new Date().toLocaleDateString(),quality:"Verified Demo"};
 
 // Persist the batch on the server DB (data/database.json) rather than
-// localStorage, so it survives refreshes and Consumer Verify can find it
+// the server, so it survives refreshes and Consumer Verify can find it
 // from any device/session. Falls back to an in-memory-only batch if the
 // server is unreachable, so the demo still works offline.
 let batch=batchPayload;
@@ -440,7 +536,34 @@ $("#content").innerHTML=`<div class="hero"><div><div class="eyebrow" style="colo
 }
 
 /* ---------- Ledger ---------- */
-function ledger(){let v=validChain(),bad=v.bad;$("#content").innerHTML=`<div class="${v.ok?"success":"dangerbox"}"><b>${v.ok?"✓ Ledger verified":"⚠ Tampering detected"}</b><br>${v.ok?"All demo blocks match their chained hashes.":"Broken block #"+bad+" detected. The chain no longer matches its integrity rules."}</div><div class="grid section">${card("Blocks",state.blocks.length,"Ledger entries")}${card("Chain state",v.ok?"VALID":"BROKEN",v.ok?"No mismatch":"Investigation required",v.ok?"low":"high")}${card("Detection","SHA-256 style","Hash + previous hash")}${card("Audit events",state.audits.length,"Security history")}</div><div class="section card"><div class="section-head"><h2>🛡️ Security Lab</h2><div class="actions"><button class="btn danger" onclick="tamper()">Run Tamper Test</button><button class="btn secondary" onclick="resetLedger()">Restore Demo Ledger</button></div></div><p class="muted">This test intentionally changes one stored block hash to demonstrate how a tamper-evident ledger detects inconsistency.</p>${v.ok?`<div class="success">Step 1: Chain is valid. Run the test to simulate unauthorized modification.</div>`:`<div class="notice"><b>Detection report</b><br>• Broken block: #${bad}<br>• Previous-hash link: MISMATCH<br>• Recomputed integrity: FAILED<br>• Action: record flagged for investigation</div>`}</div><div class="section card"><h2>🔗 Chain Explorer</h2><div class="chain">${state.blocks.slice().reverse().map(b=>`<div class="block"><b>Block #${b.idx}</b><div class="muted">${b.type} · ${b.ts}</div><hr><div class="muted">Current hash</div><p class="hash">${b.hash}</p><div class="muted">Previous hash</div><p class="hash">${b.prev}</p><details><summary>Payload</summary><pre>${esc(JSON.stringify(b.payload,null,2))}</pre></details></div>`).join("")}</div></div><div class="section card"><h2>📋 Security Audit Log</h2><div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Action</th><th>Details</th></tr></thead><tbody>${state.audits.length?state.audits.map(a=>`<tr><td>${a.ts}</td><td><span class="badge high">${a.action}</span></td><td>${esc(a.details)}</td></tr>`).join(""):`<tr><td colspan="3" class="muted">No security events yet.</td></tr>`}</tbody></table></div></div>`}
+// Reads the real on-chain record count from the HoneyLedger contract and
+// renders it above the local demo. Fails quietly: an unreachable testnet
+// must never blank the page mid-presentation.
+async function renderChainStatus(){
+  const el = document.getElementById('chainStatus');
+  if(!el) return;
+  try{
+    const res = await fetch('/api/blockchain/status', { cache:'no-store' });
+    const d = await res.json();
+    if(!d.configured){
+      el.innerHTML = '<div class="notice"><b>On-chain anchoring is off.</b><br>'
+        + (d.reason ? esc(d.reason) : 'Blockchain environment variables are not set.')
+        + '<br><span class="muted">Records are still saved to Postgres and '
+        + 'verification works normally.</span></div>';
+    }else if(d.error){
+      el.innerHTML = '<div class="notice"><b>Sepolia unreachable.</b><br>'
+        + 'Records are saved in Postgres; anchoring will retry.</div>';
+    }else{
+      el.innerHTML = '<div class="success"><b>✓ HoneyLedger live on Ethereum Sepolia</b><br>'
+        + '<b>' + d.total_records + '</b> record(s) anchored on-chain.</div>';
+    }
+  }catch(e){
+    el.innerHTML = '<div class="notice">Could not reach the blockchain status endpoint.</div>';
+  }
+}
+
+function ledger(){let v=validChain(),bad=v.bad;$("#content").innerHTML=`<div class="section card"><h2>⛓️ Production Ledger — Ethereum Sepolia</h2><div id="chainStatus"><div class="muted">Checking chain…</div></div></div>`+`<div class="${v.ok?"success":"dangerbox"}"><b>${v.ok?"✓ Ledger verified":"⚠ Tampering detected"}</b><br>${v.ok?"All blocks in the local demonstration chain match their chained hashes.":"Broken block #"+bad+" detected. The chain no longer matches its integrity rules."}</div><div class="grid section">${card("Blocks",state.blocks.length,"Ledger entries")}${card("Chain state",v.ok?"VALID":"BROKEN",v.ok?"No mismatch":"Investigation required",v.ok?"low":"high")}${card("Local chain","Demo only","Not cryptographic — see Sepolia below")}${card("Audit events",state.audits.length,"Security history")}</div><div class="section card"><div class="section-head"><h2>🛡️ Security Lab</h2><div class="actions"><button class="btn danger" onclick="tamper()">Run Tamper Test</button><button class="btn secondary" onclick="resetLedger()">Restore Demo Ledger</button></div></div><p class="muted">This test intentionally changes one stored block hash to demonstrate how a tamper-evident ledger detects inconsistency.</p>${v.ok?`<div class="success">Step 1: Chain is valid. Run the test to simulate unauthorized modification.</div>`:`<div class="notice"><b>Detection report</b><br>• Broken block: #${bad}<br>• Previous-hash link: MISMATCH<br>• Recomputed integrity: FAILED<br>• Action: record flagged for investigation</div>`}</div><div class="section card"><h2>🔗 Local Demonstration Chain</h2><p class="muted">An in-page illustration of chained hashing, reset on every reload. The production ledger is the Sepolia contract shown above.</p><div class="chain">${state.blocks.slice().reverse().map(b=>`<div class="block"><b>Block #${b.idx}</b><div class="muted">${b.type} · ${b.ts}</div><hr><div class="muted">Current hash</div><p class="hash">${b.hash}</p><div class="muted">Previous hash</div><p class="hash">${b.prev}</p><details><summary>Payload</summary><pre>${esc(JSON.stringify(b.payload,null,2))}</pre></details></div>`).join("")}</div></div><div class="section card"><h2>📋 Security Audit Log</h2><div class="table-wrap"><table class="table"><thead><tr><th>Time</th><th>Action</th><th>Details</th></tr></thead><tbody>${state.audits.length?state.audits.map(a=>`<tr><td>${a.ts}</td><td><span class="badge high">${a.action}</span></td><td>${esc(a.details)}</td></tr>`).join(""):`<tr><td colspan="3" class="muted">No security events yet.</td></tr>`}</tbody></table></div></div>`;
+renderChainStatus()}
 function tamper(){if(!state.blocks.length)return;let b=state.blocks[0];let old=b.hash;b.hash="0".repeat(64);state.audits.unshift({ts:new Date().toLocaleString(),action:"TAMPER_TEST",details:`Block #${b.idx}: hash changed from ${old.slice(0,16)}… to 0000000000000000…`});ledger()}
 function resetLedger(){state.blocks=[];state.audits=[];addBlock("GENESIS",{message:"HiveTrust demo ledger restored"});ledger()}
 
@@ -471,7 +594,22 @@ function openHarvestVerify(id){page="verify";render();$("#bid").value=id;lookup(
 function about(){$("#content").innerHTML=`<div class="hero"><div><div class="eyebrow" style="color:#9bc8ad">RESEARCH CONCEPT</div><h2>Monitor → Analyze → Predict → Verify → Track</h2><p>HiveTrust AI combines smart hive monitoring, predictive analysis and evidence-based honey provenance.</p></div></div><div class="grid section"><div class="card"><h2>🐝 IoT</h2><p class="muted">Temperature, humidity, weight and bee activity.</p></div><div class="card"><h2>🤖 AI</h2><p class="muted">Hive health, risk and yield prediction.</p></div><div class="card"><h2>🍯 Provenance</h2><p class="muted">Connect harvest batches to their source hive.</p></div><div class="card"><h2>🔗 Blockchain</h2><p class="muted">Tamper-evident event history for important records.</p></div></div><div class="section card"><h2>Research novelty</h2><p>Blockchain and QR traceability already exist in honey research. The stronger proposed contribution is integrating predictive hive intelligence with evidence-based provenance: <b>Monitor → Analyze → Predict → Verify → Track.</b></p><div class="code">Hive → Sensors → AI → Risk/Yield Prediction → Harvest → Quality Evidence → Ledger → Bottle Token → Public QR Preview → Hidden Lid Code → Detailed Consumer Report → Clone Detection</div></div>`}
 
 
-// ----- initialization: try server DB, fallback to localStorage -----
+// ----- initialization: server is the source of truth -----
+
+// Makes a failed server load visible instead of silently showing stale data.
+// Without this, a dropped connection looks identical to a working app, which
+// is exactly the kind of thing that goes wrong in front of an audience.
+function showOfflineBanner(){
+  if(document.getElementById('offlineBanner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'offlineBanner';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;'
+    + 'background:#8d2e2e;color:#fff;padding:8px 14px;font-size:13px;text-align:center';
+  bar.textContent = 'Offline — showing the last cached snapshot. '
+    + 'Changes will not be saved until the server is reachable.';
+  document.body.appendChild(bar);
+}
+
 async function init() {
   if ($('#roleSel')) $('#roleSel').value = role;
   if (!ROLE_PAGES[role].includes(page)) page = ROLE_PAGES[role][0];
@@ -480,12 +618,23 @@ async function init() {
   if (serverDB) {
     localDB = serverDB;
     state.batches = serverDB.batches || [];
-    // keep client-side records (harvests etc.) in localStorage separate from server demo DB
+    // Cache the server snapshot ONLY so the UI can still render if the
+    // network drops mid-session. It is never the source of truth -- every
+    // load overwrites it, and nothing is ever read from it while online.
     try { localStorage.setItem(DB_KEY, JSON.stringify(localDB)); } catch (e) {}
   } else {
-    // fallback to any saved local DB or default
+    // Offline fallback. Show the last snapshot rather than an empty app,
+    // and say so, so nobody mistakes stale data for live data.
     localDB = JSON.parse(localStorage.getItem(DB_KEY) || 'null') || JSON.parse(JSON.stringify(defaultDB));
+    state.batches = localDB.batches || [];
+    showOfflineBanner();
   }
+
+  // Harvest history comes from the server too.
+  await loadHarvests();
+
+  // Ask the trained model for its predictions before the first paint.
+  await refreshPredictions();
 
   applyRole();
   render();

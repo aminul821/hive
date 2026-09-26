@@ -1,0 +1,23 @@
+# Render blueprint. Free tier.
+#
+# Free web services spin down after ~15 minutes idle and cold-start in
+# roughly 50 seconds. That is survivable for a demo if you hit the URL
+# once a few minutes before you present. Do that.
+services:
+  - type: web
+    name: hivetrust
+    runtime: python
+    plan: free
+    region: singapore          # closest free region to India
+    buildCommand: "pip install -r requirements.txt && python train_model.py"
+    startCommand: "python migrate_to_db.py --no-import && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60"
+    healthCheckPath: /healthz
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+      - key: HIVETRUST_SECRET_KEY
+        generateValue: true    # Render generates and stores it
+      - key: DATABASE_URL
+        sync: false            # paste the Supabase SESSION POOLER string

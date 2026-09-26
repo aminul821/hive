@@ -53,8 +53,62 @@ def _init():
     _contract = _w3.eth.contract(address=Web3.to_checksum_address(CONTRACT_ADDRESS), abi=CONTRACT_ABI)
 
 
+def _looks_like_private_key(key: str) -> bool:
+    """
+    A secp256k1 private key is 32 bytes -- 64 hex characters, optionally
+    0x-prefixed.
+
+    The common mistake is pasting an ADDRESS here instead. An address is
+    20 bytes (40 hex chars), so it sails past a simple truthiness check
+    and then blows up deep inside eth_account with a message about byte
+    lengths that says nothing about what you actually did wrong.
+    """
+    if not key:
+        return False
+    cleaned = key.strip()
+    if cleaned.startswith(("0x", "0X")):
+        cleaned = cleaned[2:]
+    if len(cleaned) != 64:
+        return False
+    try:
+        int(cleaned, 16)
+        return True
+    except ValueError:
+        return False
+
+
+def config_problem() -> str | None:
+    """Return a human-readable reason the chain is unusable, or None."""
+    if not INFURA_URL:
+        return "INFURA_SEPOLIA_URL is not set"
+    if not CONTRACT_ADDRESS:
+        return "HONEYLEDGER_CONTRACT_ADDRESS is not set"
+    if not PRIVATE_KEY:
+        return "HONEYCHAIN_PRIVATE_KEY is not set"
+
+    if not _looks_like_private_key(PRIVATE_KEY):
+        cleaned = PRIVATE_KEY.strip()
+        if cleaned.startswith(("0x", "0X")):
+            cleaned = cleaned[2:]
+        if len(cleaned) == 40:
+            return ("HONEYCHAIN_PRIVATE_KEY looks like a wallet ADDRESS "
+                    "(20 bytes), not a private key (32 bytes). In MetaMask: "
+                    "account menu -> Account details -> Show private key. "
+                    "Use a burner wallet, never your main one.")
+        return (f"HONEYCHAIN_PRIVATE_KEY is not a valid private key: "
+                f"expected 64 hex characters, got {len(cleaned)}")
+    return None
+
+
 def is_configured() -> bool:
-    return bool(INFURA_URL and PRIVATE_KEY and CONTRACT_ADDRESS)
+    """
+    True only if the chain is actually usable.
+
+    Deliberately stricter than "all three variables are non-empty": an
+    invalid key here means every caller falls back gracefully instead of
+    raising mid-verification.
+    """
+    return config_problem() is None
 
 
 def hash_payload(data: dict) -> str:

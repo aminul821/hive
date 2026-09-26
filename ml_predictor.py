@@ -48,6 +48,20 @@ def _reasons(temperature, humidity, weight, activity):
     return "; ".join(reasons) if reasons else "all monitored parameters are within a healthy range"
 
 
+def is_available() -> bool:
+    """True if the trained model files exist and can be loaded.
+
+    Lets /api/health report model status without raising. Note that
+    models/*.pkl are build artifacts, not source: run train_model.py once
+    after cloning, or on deploy, or /api/predict returns 503.
+    """
+    try:
+        _load()
+        return True
+    except Exception:                                    # noqa: BLE001
+        return False
+
+
 def predict(temperature: float, humidity: float, weight: float, activity: float) -> dict:
     """Returns a real ML-based prediction: risk category + confidence + yield estimate."""
     _load()

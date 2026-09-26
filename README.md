@@ -1,255 +1,145 @@
-# 🍯 HoneyChain (HiveTrust AI)
+# HiveTrust AI
 
-**Blockchain-based smart beekeeping and honey traceability platform** — built for Smart India Hackathon 2026.
+Honey supply-chain traceability and smart beekeeping management.
 
-> 🚀 HoneyChain combines IoT hive monitoring, a real trained AI model for hive health/yield prediction, and blockchain-backed honey provenance so consumers can verify authenticity from hive to bottle.
-
----
-
-## ✨ Feature Status (Honest, Judge-Friendly)
-
-| Feature | Status | Notes |
-|---|---|---|
-| 🍁 Bottle authenticity verification | ✅ Real | Server-side (`/api/verify`), backed by a JSON data store |
-| ⛓️ Blockchain record of bottle verification | ✅ Real | Written live to a `HoneyLedger` smart contract on Ethereum **Sepolia testnet** (see `blockchain.py`) |
-| 📱 QR code for bottle verification | ✅ Real | Generated server-side (`/api/qr/<token>`), scans open the live verification page |
-| 🤖 AI hive health / yield prediction | ✅ Real | Trained scikit-learn RandomForest model (`train_model.py`), not a hardcoded formula |
-| 📡 IoT Sensor Ingestion | ✅ Real pipeline / 🔶 Simulated hardware | `/api/sensor-data` is a real, working endpoint; `simulate_sensors.py` stands in for physical sensors we don't have yet |
-| 🔐 Internal harvest/tamper-audit ledger | 🔶 Simulated | A demo tamper-evident hash-chain, separate from the real Ethereum ledger above |
-| 🔑 Authentication / role enforcement | 🔶 Demo-only | Role switching (Owner/Auditor/Consumer) is UI-level for demo purposes |
-| 💾 Database | 🔶 JSON file | Sufficient for demo scale; future: PostgreSQL/SQLite |
+Built for **Smart India Hackathon 2026, problem statement SIH26021**
+(Ministry of MSME) — *"Honey Chain: A blockchain-based system for honey
+traceability and smart beekeeping management."*
 
 ---
 
-## 🏗️ Architecture
+## What it does
+
+Honey is one of India's most adulterated food products. The usual fraud is
+simple: buy cheap syrup or imported honey, blend it into a genuine batch,
+and sell the whole thing with authentic paperwork. Paperwork alone cannot
+catch this, because the paperwork is what the fraudster controls.
+
+HiveTrust attacks it with a physical argument instead. Honey removed from a
+hive must equal the hive's weight drop, and what gets bottled must equal
+what was harvested. Where those numbers disagree, something entered the
+chain that did not come from a bee.
+
+**Monitor → Analyze → Predict → Verify → Track**
+
+## Architecture
 
 ```
-    🌐 Browser (role-based dashboard)
-        │
-        ▼ ⬇️ ⬇️ ⬇️
-    🔧 Flask Backend (app.py, routes/main.py)
-        │
-        ├── 📁 data/database.json  ── bottles, gateways, devices, sensor readings
-        ├── 🤖 ml_predictor.py     ── loads trained scikit-learn models
-        │        └── 📊 models/hive_risk_model.pkl, hive_yield_model.pkl
-        └── ⛓️ blockchain.py       ── web3.py → Ethereum Sepolia → HoneyLedger.sol
+Hive sensors ──► Flask API ──► Postgres (Supabase)
+                    │
+                    ├─► RandomForest  ─ hive risk + yield prediction
+                    ├─► Integrity engine ─ weight-based fraud detection
+                    └─► HoneyLedger contract (Ethereum Sepolia)
+                              │
+Consumer QR ──────────────────┘
 ```
 
-**📊 Data Flow (Bottle Verification):**
-```
-🔍 Consumer scans QR 
-    ➜ 🌐 opens /?v=<token> 
-    ➜ 🔐 enters hidden lid code 
-    ➜ 📤 POST /api/verify 
-    ➜ 💾 result saved 
-    ➜ ⛓️ HoneyLedger on Sepolia ✓
-```
+Records live in Postgres, not in the browser. Integrity verdicts are
+computed server-side, so the operator being audited cannot author their own
+result. Each verification is anchored on-chain and returns a real
+transaction hash.
 
-**📈 Data Flow (Sensor → AI):**
-```
-📡 Sensor 
-    ➜ 📤 POST /api/sensor-data 
-    ➜ 💾 reading stored 
-    ➜ 🤖 RandomForest model 
-    ➜ 📊 risk/yield returned ✓
-```
+## Components
 
----
+| File | Role |
+|---|---|
+| `routes/main.py` | REST API |
+| `models.py` | Postgres schema |
+| `store.py` | data access |
+| `integrity.py` | harvest fraud rules |
+| `ml_predictor.py` / `train_model.py` | RandomForest risk + yield |
+| `blockchain.py` | HoneyLedger contract on Sepolia |
+| `simulate_sensors.py` | feeds the ingest endpoint |
+| `smoke_test.py` | 44 tests over the storage layer |
 
-## 🛠️ Tech Stack
+## The integrity engine
 
-```
-╔═════════════════════════════════════════════════╗
-║  🎨 FRONTEND                                    ║
-║  • JavaScript (62.7%)                           ║
-║  • HTML (2.1%)                                  ║
-║  • CSS - Role-based Dashboard UI                ║
-╚═════════════════════════════════════════════════╝
-           │
-           ▼ ⬇️ ⬇️
-╔═════════════════════════════════════════════════╗
-║  ⚙️ BACKEND                                     ║
-║  • Python (34.6%)                               ║
-║  • Flask REST API                               ║
-╚═════════════════════════════════════════════════╝
-           │
-           ▼ ⬇️ ⬇️
-╔═════════════════════════════════════════════════╗
-║  🔬 ML/AI & BLOCKCHAIN                          ║
-║  • scikit-learn (RandomForest models)           ║
-║  • Solidity Smart Contracts                     ║
-║  • Web3.py - Ethereum Sepolia testnet           ║
-╚═════════════════════════════════════════════════╝
-           │
-           ▼ ⬇️ ⬇️
-╔═════════════════════════════════════════════════╗
-║  💾 DATABASE                                    ║
-║  • JSON (demo) → PostgreSQL/SQLite (production) ║
-╚═════════════════════════════════════════════════╝
-```
+`integrity.py` compares three independently-sourced numbers:
 
----
+- **hive weight drop** — from the scale, not the operator
+- **honey extracted** — measured at extraction
+- **weight recorded** — what the operator wrote down
 
-## 🚀 Setup
+It flags:
+
+| Rule | Catches |
+|---|---|
+| recorded > extracted | honey with no origin entering the batch |
+| recorded < extracted | diversion before weighing |
+| extracted > weight drop | honey from an unrecorded source |
+| large extraction shortfall | unaccounted loss |
+| hive gained weight | physically impossible record |
+| moisture > 20% | unripe or watered honey |
+
+The scale comparison is the strongest, because the corroborating number
+comes from a sensor rather than from the person being checked.
+
+## Two-factor bottle verification
+
+Each bottle carries a **public QR token** and a **hidden lid code** under the
+cap. Scanning the QR shows provenance. Entering the lid code proves physical
+possession of a sealed jar.
+
+The lid code is stored server-side and returned exactly once, when the
+bottle is registered and the code must be printed. No read endpoint ever
+returns it. `smoke_test.py` asserts this.
+
+Repeated verification of the same credential is flagged as a possible
+cloned label.
+
+## Running it
 
 ```bash
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
+cp env.example .env          # add DATABASE_URL and HIVETRUST_SECRET_KEY
 
-# Train the AI model (one-time)
-python train_model.py
-
-# Configure environment variables
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start the server
+python smoke_test.py         # verify storage (uses a temp database)
+python migrate_to_db.py      # create schema, import seed data
+python train_model.py        # generate models/*.pkl
 python app.py
 ```
 
-### 🔐 Environment Variables (`.env`)
+Open http://127.0.0.1:5000
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `HIVETRUST_SECRET_KEY` | ✅ Non-dev | Flask session secret |
-| `FLASK_ENV` | ✅ | `development` or `production` |
-| `INFURA_SEPOLIA_URL` | ⛓️ Blockchain | Sepolia RPC endpoint |
-| `HONEYCHAIN_PRIVATE_KEY` | ⛓️ Blockchain | Test wallet private key |
-| `HONEYLEDGER_CONTRACT_ADDRESS` | ⛓️ Blockchain | Deployed contract address |
-| `DEVICE_INGEST_KEY` | 📡 Optional | Sensor data endpoint key |
+With `DATABASE_URL` unset it falls back to local SQLite, so the app runs
+with no Supabase account.
 
----
+**Supabase:** use the **Session pooler** string (port 5432), not "Direct
+connection" — the direct host is IPv6-only on the free tier and most hosts
+are IPv4-only. See `MIGRATION.md`.
 
-## 📡 API Reference
+## API
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| 🟢 GET | `/api/health` | Health check |
-| 🟢 GET | `/api/database` | Public database view |
-| 🟢 GET | `/api/bottles/<token>` | Bottle preview |
-| 🟢 GET | `/api/qr/<token>` | QR code PNG |
-| 🔵 POST | `/api/verify` | Verify bottle & write to blockchain |
-| 🟢 GET | `/api/blockchain/status` | Ledger records count |
-| 🔵 POST | `/api/predict` | AI prediction from sensor values |
-| 🔵 POST | `/api/sensor-data` | Ingest sensor reading + AI prediction |
-| 🟢 GET | `/api/sensor-data/<device_id>` | Recent device readings |
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/health` | service + database + model status |
+| `GET /api/database` | full snapshot (lid codes excluded) |
+| `POST /api/batches` · `GET /api/batches/<id>` | batch registry |
+| `POST /api/bottles` · `GET /api/bottles/<token>` | bottle registry |
+| `GET /api/qr/<token>` | scannable QR PNG |
+| `POST /api/verify` | two-factor verification |
+| `POST /api/sensor-data` · `GET /api/sensor-data/<id>` | telemetry |
+| `POST /api/harvests` · `GET /api/harvests` | harvest records + verdict |
+| `POST /api/harvests/evaluate` | dry-run check, nothing saved |
+| `POST /api/predict` | RandomForest risk + yield |
+| `GET /api/blockchain/status` | on-chain record count |
 
----
+## Honest limitations
 
-## 🎮 Demo Without Hardware
+Stated plainly, because they are the questions worth asking:
 
-```bash
-python simulate_sensors.py --loop
-```
+- **Sensors are simulated.** `simulate_sensors.py` posts to the same ingest
+  endpoint real hardware would use. No hive is currently instrumented.
+- **The model is trained on synthetic data.** `train_model.py` generates
+  4,000 samples from apiculture domain rules with noise. Real multi-season
+  hive logs are not publicly available at the scale needed.
+- **The contract is on Sepolia testnet.** Real chain, test currency.
+- **Roles are client-side.** Role selection is not yet authenticated; write
+  endpoints are not access-controlled.
+- **The Security Lab ledger is a local demonstration**, clearly labelled as
+  such in the UI. Production anchoring is the Sepolia contract.
 
-📊 This sends realistic sensor readings every 15 seconds, so you can see the IoT → AI pipeline live! 
+## Team
 
-**Live Demo Flow:**
-```
-🔄 Start Loop
-  ➜ 📡 Generate Sensor Data
-  ➜ 📤 Send to Backend
-  ➜ 🤖 AI Processing
-  ➜ 📊 Results Display
-  ➜ 🔄 Repeat (15s)
-```
-
----
-
-## ⚠️ Known Limitations
-
-- 📊 Demo-scale JSON storage (not production-ready)
-- 🔑 Role-based access is UI-level only
-- 📡 IoT hardware is simulated (no LoRaWAN deployment yet)
-- 🔗 Internal harvest ledger is a simulated hash-chain
-- 🤖 AI model trained on synthetic domain data (no historical real-world dataset yet)
-
----
-
-## 👥 Team
-
-<div align="center">
-
-### 🔥 **HEXADEVELOPERS** 🔥
-#### *6 Coders, 1 Mission, Infinite Possibilities* ⚡
-
-```
-     💻💻💻
-   💻  🎯  💻    ← 1 Vision
-     💻💻💻
-```
-
-</div>
-
-<table>
-  <tr>
-    <th>👤 Member</th>
-    <th>💼 Role</th>
-    <th>🔗 GitHub</th>
-  </tr>
-  <tr>
-    <td><b>⭐ Aminul Haque</b></td>
-    <td>Project Lead & Full Stack Developer</td>
-    <td><a href="https://github.com/aminul821">@aminul821</a></td>
-  </tr>
-  <tr>
-    <td><b>🎨 Veeru Shukla</b></td>
-    <td>Frontend Developer</td>
-    <td><a href="https://github.com/veerushukla">@veerushukla</a></td>
-  </tr>
-  <tr>
-    <td><b>🔧 Aditya Anand</b></td>
-    <td>Backend Developer & Vibe Coder</td>
-    <td><a href="https://github.com/adiianand">@adiianand</a></td>
-  </tr>
-  <tr>
-    <td><b>📊 Anas Khan</b></td>
-    <td>Analyst & Data Scientist</td>
-    <td><a href="https://github.com/1anas1">@1anas1</a></td>
-  </tr>
-  <tr>
-    <td><b>📚 Muskan</b></td>
-    <td>Research & Documentation</td>
-    <td><a href="https://github.com/muskansahu479">@muskansahu479</a></td>
-  </tr>
-  <tr>
-    <td><b>🔬 Siddharth</b></td>
-    <td>Research & Development (R&D)</td>
-    <td><a href="https://github.com/siddharth-pandey34">@siddharth-pandey34</a></td>
-  </tr>
-</table>
-
----
-
-## 🤝 Contributing
-
-```
-Fork ➜ Branch ➜ Commit ➜ Push ➜ Pull Request ✨
-```
-
-We welcome contributions! Please fork this repository and submit pull requests with improvements.
-
----
-
-## 📜 License
-
-MIT License — See [LICENSE](LICENSE) file for details.
-
----
-
-<div align="center">
-
-### ⭐ If you find HoneyChain helpful, please consider giving us a star! ⭐
-
-**Made with ❤️ by Team HexaDevelopers**
-
-```
-   🐝 ➜ 🍯 ➜ ✓
-Protecting authenticity, one bottle at a time
-```
-
-</div>
+HexaDevelopers — SIH 2026, PS SIH26021, Agriculture/FoodTech & Rural
+Development.
