@@ -343,6 +343,29 @@ def api_create_harvest():
     }), 201
 
 
+@main_bp.get("/api/integrity/audit")
+def api_integrity_audit():
+    """
+    Supply-chain-wide audit.
+
+    Everything under /api/harvests asks "was THIS harvest honest?". This
+    asks a different and harder question: "where in this supply chain
+    does the arithmetic fail?"
+
+    The checks are cross-record, which is the point. An individual
+    harvest can be made internally consistent by anyone willing to write
+    three numbers that agree. A whole season of records that still agree
+    with each other, and with the number of hives on the ground, is much
+    harder to fabricate.
+    """
+    harvests = store.list_harvests()
+    batches = store.public_database()["batches"]
+    report = integrity.audit_all(harvests, batches)
+    report["batches_checked"] = len(batches)
+    report["harvests_checked"] = len(harvests)
+    return jsonify(report)
+
+
 @main_bp.post("/api/harvests/evaluate")
 def api_evaluate_harvest():
     """Dry run: check a harvest without saving it, for live UI feedback."""
