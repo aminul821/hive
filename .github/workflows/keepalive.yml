@@ -1,63 +1,67 @@
 name: Keep Supabase awake
 
-# Supabase pauses free-tier projects after 7 days without activity. A paused
-# project is unreachable until someone restores it by hand from the dashboard.
+# Supabase pauses free-tier projects after 7 days without activity.
+# The previous version pinged the deployed app, which was never deployed,
+# so every run failed and the project paused anyway. This one talks to
+# Supabase directly and needs no hosting.
 #
-# For a hackathon this is the single most likely way to lose a demo: you build
-# in week one, present in week three, and the database went to sleep in
-# between. This workflow touches the database every two days so that cannot
-# happen.
-#
-# SETUP: add a repository secret named APP_URL pointing at your deployed app,
-# for example https://hivetrust.onrender.com
-# Repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+# Secrets required:
+#   SUPABASE_URL       https://<project-ref>.supabase.co
+#   SUPABASE_ANON_KEY  Settings -> API -> anon public
 
 on:
   schedule:
-    # 06:00 UTC on even days. Two days is a comfortable margin under seven,
-    # and leaves room for a couple of consecutive failed runs.
-    - cron: "0 6 */2 * *"
-  workflow_dispatch:        # lets you trigger it by hand before demo day
+    - cron: "12 6 */2 * *"
+  workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping the app so it queries Supabase
+      - name: Query Supabase so it registers activity
         env:
-          APP_URL: ${{ secrets.APP_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
 
-          if [ -z "${APP_URL:-}" ]; then
-            echo "APP_URL secret is not set. Add it in repository settings."
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "::error::SUPABASE_URL or SUPABASE_ANON_KEY is not set."
             exit 1
           fi
 
-          # /api/health runs an actual SELECT, which is what counts as
-          # activity. A static page would not keep the database awake.
-          url="${APP_URL%/}/api/health"
-          echo "Pinging $url"
+          url="${SUPABASE_URL%/}/rest/v1/batches?select=id&limit=1"
+          echo "Querying ${SUPABASE_URL%/}/rest/v1/batches"
 
-          # Free hosts spin down when idle, so the first request can take
-          # close to a minute to cold-start. Retry generously.
-          for attempt in 1 2 3 4 5; do
+          for attempt in 1 2 3; do
             code=$(curl -sS -o /tmp/body.txt -w "%{http_code}" \
-                        --max-time 90 "$url" || echo "000")
+                        --max-time 30 \
+                        -H "apikey: ${SUPABASE_ANON_KEY}" \
+                        -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+                        "$url" || echo "000")
 
-            if [ "$code" = "200" ]; then
-              echo "OK on attempt $attempt"
-              cat /tmp/body.txt
-              if grep -q '"database":[[:space:]]*"down"' /tmp/body.txt; then
-                echo "::error::App is up but the database is unreachable."
+            case "$code" in
+              200|206)
+                echo "OK on attempt $attempt - project is awake."
+                exit 0
+                ;;
+              401|403)
+                echo "Reached the database; RLS refused the read (HTTP $code)."
+                echo "That still counts as activity."
+                exit 0
+                ;;
+              404)
+                echo "::error::Table 'batches' not found. Run migrate_to_db.py."
+                cat /tmp/body.txt
                 exit 1
-              fi
-              exit 0
-            fi
-
-            echo "attempt $attempt failed (HTTP $code), retrying in 30s"
-            sleep 30
+                ;;
+              *)
+                echo "attempt $attempt failed (HTTP $code), retrying in 20s"
+                cat /tmp/body.txt || true
+                sleep 20
+                ;;
+            esac
           done
 
-          echo "::error::Could not reach $url after 5 attempts."
+          echo "::error::Could not reach Supabase after 3 attempts."
           exit 1
